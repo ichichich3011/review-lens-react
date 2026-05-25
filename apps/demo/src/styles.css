@@ -1,0 +1,136 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #f0eee8;
+  color: #191816;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  margin: 0;
+}
+
+main {
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 24px;
+}
+
+nav {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 48px;
+}
+
+.toolbar {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.toolbar label {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.toolbar select {
+  background: #ffffff;
+  border: 1px solid #c9c3b8;
+  border-radius: 6px;
+  color: #191816;
+  font: inherit;
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+button {
+  background: #191816;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 12px 16px;
+}
+
+.hero {
+  background: #ffffff;
+  border: 1px solid #d8d3c8;
+  border-radius: 8px;
+  display: grid;
+  gap: 18px;
+  min-height: 420px;
+  padding: 56px;
+  place-content: center start;
+}
+
+.hero p {
+  color: #6a6255;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  font-size: clamp(40px, 8vw, 88px);
+  letter-spacing: 0;
+  line-height: 0.95;
+  margin: 0;
+  max-width: 840px;
+}
+
+.hero button {
+  justify-self: start;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+article {
+  background: #fafafa;
+  border: 1px solid #d8d3c8;
+  border-radius: 8px;
+  padding: 28px;
+}
+
+article h2 {
+  font-size: 22px;
+  margin: 0 0 8px;
+}
+
+article p {
+  color: #4d4840;
+  line-height: 1.6;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  main {
+    padding: 16px;
+  }
+
+  .hero {
+    min-height: 360px;
+    padding: 28px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

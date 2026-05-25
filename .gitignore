@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+recordings
+screenshots
+.DS_Store
+*.log
+*.tsbuildinfo

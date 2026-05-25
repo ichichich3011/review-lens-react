@@ -1,0 +1,208 @@
+.review-lens-root {
+  color: #171717;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  position: fixed;
+  z-index: 2147483647;
+}
+
+.review-lens-highlight {
+  border: 2px solid #2563eb;
+  box-shadow:
+    0 0 0 9999px rgb(15 23 42 / 0.08),
+    0 0 0 4px rgb(37 99 235 / 0.18);
+  pointer-events: none;
+  position: absolute;
+}
+
+.review-lens-highlight--locked {
+  border-color: #f97316;
+  box-shadow:
+    0 0 0 9999px rgb(15 23 42 / 0.12),
+    0 0 0 4px rgb(249 115 22 / 0.22);
+}
+
+.review-lens-panel {
+  background: #fafafa;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 0.22);
+  box-sizing: border-box;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 16px;
+  position: fixed;
+  width: min(380px, calc(100vw - 32px));
+}
+
+.review-lens-panel--top-left {
+  left: 16px;
+  top: 16px;
+}
+
+.review-lens-panel--top-right {
+  right: 16px;
+  top: 16px;
+}
+
+.review-lens-panel--bottom-left {
+  bottom: 16px;
+  left: 16px;
+}
+
+.review-lens-panel--bottom-right {
+  bottom: 16px;
+  right: 16px;
+}
+
+.review-lens-panel__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.review-lens-panel h2,
+.review-lens-panel h3,
+.review-lens-panel p {
+  margin: 0;
+}
+
+.review-lens-panel h2 {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.review-lens-panel h3 {
+  font-size: 14px;
+  margin-top: 18px;
+}
+
+.review-lens-kicker {
+  color: #525252;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.review-lens-panel button {
+  background: #171717;
+  border: 1px solid #171717;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.review-lens-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.review-lens-metrics {
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  display: grid;
+  gap: 0;
+  margin: 16px 0 0;
+  overflow: hidden;
+}
+
+.review-lens-metrics div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.review-lens-metrics dt,
+.review-lens-metrics dd {
+  border-bottom: 1px solid #e5e5e5;
+  font-size: 12px;
+  margin: 0;
+  min-width: 0;
+  padding: 8px;
+}
+
+.review-lens-metrics dt {
+  background: #f5f5f5;
+  color: #525252;
+  font-weight: 700;
+}
+
+.review-lens-metrics dd {
+  overflow-wrap: anywhere;
+}
+
+.review-lens-feedback-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.review-lens-feedback-form label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.review-lens-feedback-form textarea {
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  box-sizing: border-box;
+  font: inherit;
+  min-height: 96px;
+  padding: 10px;
+  resize: vertical;
+  width: 100%;
+}
+
+.review-lens-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.review-lens-comments {
+  display: grid;
+  gap: 8px;
+}
+
+.review-lens-comment {
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.review-lens-comment--selected {
+  border-color: #2563eb;
+}
+
+.review-lens-comment span {
+  color: #525252;
+  font-size: 12px;
+}
+
+.review-lens-marker {
+  background: #f97316;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgb(15 23 42 / 0.24);
+  cursor: pointer;
+  height: 18px;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 18px;
+}
+
+.review-lens-marker--selected {
+  background: #2563eb;
+}
