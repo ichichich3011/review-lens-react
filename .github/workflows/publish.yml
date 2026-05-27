@@ -1,0 +1,45 @@
+name: Publish Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test package
+        working-directory: packages/review-lens-react
+        run: npm test -- --run
+
+      - name: Typecheck package
+        working-directory: packages/review-lens-react
+        run: npm run typecheck
+
+      - name: Build package
+        working-directory: packages/review-lens-react
+        run: npm run build
+
+      - name: Publish package
+        working-directory: packages/review-lens-react
+        run: npm publish --access public
