@@ -1,6 +1,6 @@
 {
   "name": "review-lens-react",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "React overlay for UX review feedback backed by Google Sheets.",
   "type": "module",
   "main": "./dist/review-lens-react.umd.cjs",

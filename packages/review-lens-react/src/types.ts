@@ -6,8 +6,20 @@ export type ReviewLensPermission = "create" | "read" | "resolve";
 
 export type CssSnapshot = {
   margin: string;
+  marginTop: string;
+  marginRight: string;
+  marginBottom: string;
+  marginLeft: string;
   padding: string;
+  paddingTop: string;
+  paddingRight: string;
+  paddingBottom: string;
+  paddingLeft: string;
   border: string;
+  borderTopWidth: string;
+  borderRightWidth: string;
+  borderBottomWidth: string;
+  borderLeftWidth: string;
   fontFamily: string;
   fontSize: string;
   lineHeight: string;
@@ -86,4 +98,3 @@ export type ReviewLensProviderProps = {
   config: ReviewLensConfig;
   children: ReactNode;
 };
-

@@ -84,18 +84,30 @@ function readCssSnapshot(element: Element, rect: DOMRect): CssSnapshot {
 
   return {
     margin: compactBox(styles.marginTop, styles.marginRight, styles.marginBottom, styles.marginLeft),
+    marginTop: styles.marginTop,
+    marginRight: styles.marginRight,
+    marginBottom: styles.marginBottom,
+    marginLeft: styles.marginLeft,
     padding: compactBox(
       styles.paddingTop,
       styles.paddingRight,
       styles.paddingBottom,
       styles.paddingLeft
     ),
+    paddingTop: styles.paddingTop,
+    paddingRight: styles.paddingRight,
+    paddingBottom: styles.paddingBottom,
+    paddingLeft: styles.paddingLeft,
     border: compactBox(
       styles.borderTopWidth,
       styles.borderRightWidth,
       styles.borderBottomWidth,
       styles.borderLeftWidth
     ),
+    borderTopWidth: styles.borderTopWidth,
+    borderRightWidth: styles.borderRightWidth,
+    borderBottomWidth: styles.borderBottomWidth,
+    borderLeftWidth: styles.borderLeftWidth,
     fontFamily: styles.fontFamily,
     fontSize: styles.fontSize,
     lineHeight: styles.lineHeight,

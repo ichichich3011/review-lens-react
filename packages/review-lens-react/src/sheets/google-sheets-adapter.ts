@@ -1,5 +1,6 @@
 import type {
   CreateFeedbackInput,
+  CssSnapshot,
   ReviewLensAdapter,
   ReviewLensFeedback,
   ReviewLensPermission,
@@ -262,18 +263,7 @@ function rowToFeedback(row: Record<string, string>): ReviewLensFeedback | null {
       width: 0,
       height: 0
     }),
-    cssSnapshot: parseJson(row.cssSnapshotJson, {
-      margin: "",
-      padding: "",
-      border: "",
-      fontFamily: "",
-      fontSize: "",
-      lineHeight: "",
-      color: "",
-      backgroundColor: "",
-      width: 0,
-      height: 0
-    }),
+    cssSnapshot: parseCssSnapshot(row.cssSnapshotJson),
     comment: row.comment,
     status: row.status === "resolved" ? "resolved" : "open",
     authorEmail: row.authorEmail,
@@ -290,6 +280,35 @@ function parseJson<T>(value: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function parseCssSnapshot(value: string): CssSnapshot {
+  const snapshot = parseJson<Partial<CssSnapshot>>(value, {});
+
+  return {
+    margin: snapshot.margin ?? "",
+    marginTop: snapshot.marginTop ?? "",
+    marginRight: snapshot.marginRight ?? "",
+    marginBottom: snapshot.marginBottom ?? "",
+    marginLeft: snapshot.marginLeft ?? "",
+    padding: snapshot.padding ?? "",
+    paddingTop: snapshot.paddingTop ?? "",
+    paddingRight: snapshot.paddingRight ?? "",
+    paddingBottom: snapshot.paddingBottom ?? "",
+    paddingLeft: snapshot.paddingLeft ?? "",
+    border: snapshot.border ?? "",
+    borderTopWidth: snapshot.borderTopWidth ?? "",
+    borderRightWidth: snapshot.borderRightWidth ?? "",
+    borderBottomWidth: snapshot.borderBottomWidth ?? "",
+    borderLeftWidth: snapshot.borderLeftWidth ?? "",
+    fontFamily: snapshot.fontFamily ?? "",
+    fontSize: snapshot.fontSize ?? "",
+    lineHeight: snapshot.lineHeight ?? "",
+    color: snapshot.color ?? "",
+    backgroundColor: snapshot.backgroundColor ?? "",
+    width: snapshot.width ?? 0,
+    height: snapshot.height ?? 0
+  };
 }
 
 function roleToPermissions(role: ReviewLensRole): ReviewLensPermission[] {
