@@ -764,14 +764,17 @@ describe("ReviewLensOverlay", () => {
           currentUrl: "http://localhost:5173/article/1",
           designTokens: {
             fontSize: ["16px"],
-            spacing: ["0px"],
+            spacing: ["0px", "24px"],
             lineHeight: ["normal"],
             radius: ["0px"],
             color: ["rgb(0, 0, 0)"]
           }
         }}
       >
-        <button data-review-id="icon-button" style={{ fontSize: "13px", width: 20, height: 20 }} />
+        <button
+          data-review-id="icon-button"
+          style={{ fontSize: "13px", padding: "0px 0px 24px 0px", width: 20, height: 20 }}
+        />
         <ReviewLensOverlay open />
       </ReviewLensProvider>
     );
@@ -785,6 +788,7 @@ describe("ReviewLensOverlay", () => {
     expect(await screen.findByText("Interactive element has no accessible name.")).toBeTruthy();
     expect(screen.getByText("Tap target is smaller than 44 x 44.")).toBeTruthy();
     expect(screen.getByText(/Font size .* is outside configured tokens/)).toBeTruthy();
+    expect(screen.queryByText(/Padding .* is outside configured tokens/)).toBeNull();
   });
 });
 

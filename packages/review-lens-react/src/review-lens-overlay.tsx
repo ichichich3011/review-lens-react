@@ -1423,23 +1423,47 @@ function getTokenInsights(
 ): string[] {
   const issues: string[] = [];
 
-  checkToken("Padding", snapshot.padding, tokens.spacing, issues);
-  checkToken("Margin", snapshot.margin, tokens.spacing, issues);
+  checkToken("Padding", snapshot.padding, tokens.spacing, issues, { allowComposite: true });
+  checkToken("Margin", snapshot.margin, tokens.spacing, issues, { allowComposite: true });
   checkToken("Font size", snapshot.fontSize, tokens.fontSize, issues);
   checkToken("Line height", snapshot.lineHeight, tokens.lineHeight, issues);
   checkToken("Text color", snapshot.color, tokens.color, issues);
   checkToken("Background", snapshot.backgroundColor, tokens.color, issues);
-  checkToken("Radius", snapshot.borderRadius, tokens.radius, issues);
+  checkToken("Radius", snapshot.borderRadius, tokens.radius, issues, { allowComposite: true });
 
   return issues;
 }
 
-function checkToken(label: string, value: string, allowed: string[] | undefined, issues: string[]) {
-  if (!allowed || allowed.length === 0 || !value || allowed.includes(value)) {
+function checkToken(
+  label: string,
+  value: string,
+  allowed: string[] | undefined,
+  issues: string[],
+  options: { allowComposite?: boolean } = {}
+) {
+  if (!allowed || allowed.length === 0 || !value || isAllowedTokenValue(value, allowed, options)) {
     return;
   }
 
   issues.push(`${label} ${value} is outside configured tokens.`);
+}
+
+function isAllowedTokenValue(
+  value: string,
+  allowed: string[],
+  options: { allowComposite?: boolean } = {}
+): boolean {
+  if (allowed.includes(value)) {
+    return true;
+  }
+
+  if (!options.allowComposite) {
+    return false;
+  }
+
+  const parts = value.trim().split(/\s+/);
+
+  return parts.length > 1 && parts.every((part) => allowed.includes(part));
 }
 
 function formatElementLabel(fingerprint: ReviewLensTarget["fingerprint"]) {
