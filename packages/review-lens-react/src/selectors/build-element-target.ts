@@ -113,6 +113,7 @@ function readCssSnapshot(element: Element, rect: DOMRect): CssSnapshot {
     lineHeight: styles.lineHeight,
     color: styles.color,
     backgroundColor: styles.backgroundColor,
+    borderRadius: styles.borderRadius,
     width: Math.round(rect.width),
     height: Math.round(rect.height)
   };

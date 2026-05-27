@@ -11,6 +11,10 @@ The package is intended to be mounted by the host app only when review mode is n
 - Prefer stable selectors such as `data-review-id`, `data-testid`, `id`, `aria-label`, and `name`.
 - Fall back to a generated CSS path when no stable attribute exists.
 - Save feedback with selector, URL, content id, author, status, timestamps, CSS snapshot, and element fingerprint.
+- Triage feedback by status, severity, type, assignee, viewport, threaded replies, and summary groups.
+- Detect target drift by comparing the stored fingerprint and CSS snapshot with the current DOM.
+- Show accessibility hints and host-configured design token mismatches for the selected element.
+- Store screenshot metadata and URLs when the host app provides capture and upload hooks.
 - Match feedback across localhost and production by `projectKey`, `contentId`, and normalized path.
 - Use Google OAuth in the browser and Google Sheets as the feedback store.
 - Support panel placement in all four corners.
@@ -94,6 +98,9 @@ Config:
 | `contentId` | yes | Stable content key shared by localhost and production. |
 | `currentUrl` | no | URL to store and normalize. Defaults to `window.location.href`. |
 | `normalizeUrl` | no | Custom URL normalization function. |
+| `designTokens` | no | Allowed spacing, font size, line height, color, and radius values for advisory token checks. |
+| `captureScreenshot` | no | Optional hook that captures a screenshot for a selected target. |
+| `uploadAttachment` | no | Optional hook that stores screenshots and returns attachment URLs. |
 | `adapter` | no | Custom storage adapter for tests, demos, or a future backend. |
 
 ### `ReviewLensOverlay`
@@ -106,6 +113,7 @@ Render this when review mode should be available.
   onOpenChange={setReviewOpen}
   placement="bottom-left"
   showResolved={false}
+  syncSelectionToUrl={true}
 />
 ```
 
@@ -117,6 +125,8 @@ Props:
 | `onOpenChange` | no | Called when the overlay requests closing. |
 | `placement` | no | `top-left`, `top-right`, `bottom-left`, or `bottom-right`. Defaults to `top-right`. |
 | `showResolved` | no | Shows resolved comments when true. Defaults to false. |
+| `syncSelectionToUrl` | no | Writes `reviewLensFeedback=<id>` into the URL and opens matching shared links. |
+| `responsivePresets` | no | Viewport preset labels stored with new feedback. |
 
 ## Google Setup
 
@@ -191,12 +201,20 @@ Share the Sheet with every reviewer/developer who should use the overlay. Users 
 Create a tab named `Feedback` with this exact header row:
 
 ```csv
-id,projectKey,contentId,normalizedPath,originalUrl,selector,selectorStrategy,elementFingerprintJson,cssSnapshotJson,comment,status,authorEmail,createdAt,updatedAt,resolvedAt,resolvedBy
+id,projectKey,contentId,normalizedPath,originalUrl,selector,selectorStrategy,elementFingerprintJson,createdCssSnapshotJson,comment,status,severity,category,assigneeEmail,viewportWidth,viewportHeight,viewportPreset,screenshotUrl,screenshotThumbnailUrl,attachmentJson,authorEmail,createdAt,updatedAt,fixedCssSnapshotJson,fixedAt,fixedBy,resolvedAt,resolvedBy
 ```
 
-The library appends new feedback rows and updates existing rows when feedback is resolved.
+The library appends new feedback rows and updates existing rows when status, assignment, screenshot metadata, or fixed-state snapshots change.
 
-### 7. Add the `Users` tab
+### 7. Add the `Messages` tab
+
+Create a tab named `Messages` with this header row:
+
+```csv
+id,feedbackId,body,authorEmail,createdAt
+```
+
+### 8. Add the `Users` tab
 
 Create a tab named `Users` with this header row:
 
@@ -216,9 +234,9 @@ Roles:
 
 | Role | Permissions |
 | --- | --- |
-| `designer` | Read and create feedback. |
-| `developer` | Read feedback and resolve it. |
-| `admin` | Read, create, and resolve feedback. |
+| `designer` | Read, create, and reply. |
+| `developer` | Read, reply, update status, and assign. |
+| `admin` | Read, create, reply, update status, and assign. |
 
 If `projectKey` is empty, the user role applies to every project using the Sheet. If `active` is `false`, the row is ignored.
 
@@ -277,7 +295,7 @@ const adapter = {
     return { email: "designer@example.com" };
   },
   async getPermissions() {
-    return ["create", "read", "resolve"];
+    return ["create", "read", "reply", "update", "assign"];
   },
   async listFeedback(params) {
     return [];
@@ -286,13 +304,23 @@ const adapter = {
     return {
       ...input,
       id: crypto.randomUUID(),
-      status: "open",
+      attachments: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
   },
-  async resolveFeedback(id, resolvedBy) {
-    throw new Error("Implement resolveFeedback");
+  async updateFeedback(id, patch) {
+    throw new Error("Implement updateFeedback");
+  },
+  async listMessages(feedbackId) {
+    return [];
+  },
+  async createMessage(input) {
+    return {
+      ...input,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString()
+    };
   }
 };
 ```
@@ -349,4 +377,3 @@ data-testid="registration-form"
 ```
 
 Generated CSS paths work, but they are more likely to break when DOM structure changes.
-

@@ -48,6 +48,35 @@ describe("ReviewLensOverlay", () => {
     expect(panel.className).toContain("review-lens-panel");
   });
 
+  it("allows feedback and summary panes to scroll inside the panel", async () => {
+    const adapter = createAdapter({
+      listFeedback: vi.fn(async () => [createFeedbackItem()])
+    });
+
+    render(
+      <ReviewLensProvider
+        config={{
+          adapter,
+          projectKey: "demo",
+          contentId: "article-1",
+          currentUrl: "http://localhost:5173/article/1"
+        }}
+      >
+        <ReviewLensOverlay open />
+      </ReviewLensProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Feedback 1/ }));
+    const feedbackPane = document.querySelector<HTMLElement>(".review-lens-comments");
+    expect(feedbackPane).not.toBeNull();
+    expect(feedbackPane!.className).toBe("review-lens-comments");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Summary" }));
+    const summaryPane = document.querySelector<HTMLElement>(".review-lens-summary");
+    expect(summaryPane).not.toBeNull();
+    expect(summaryPane!.className).toBe("review-lens-summary");
+  });
+
   it("creates feedback for a locked element", async () => {
     const createFeedback = vi.fn(async (input) => ({
       ...input,
@@ -89,7 +118,10 @@ describe("ReviewLensOverlay", () => {
       expect.objectContaining({
         selector: '[data-review-id="cta"]',
         comment: "Increase tap target size",
-        normalizedPath: "/article/1"
+        normalizedPath: "/article/1",
+        severity: "medium",
+        category: "visual",
+        viewportPreset: "desktop"
       })
     );
   });
@@ -231,6 +263,65 @@ describe("ReviewLensOverlay", () => {
     expect(content?.style.left).toBe("30px");
     expect(content?.style.width).toBe("84px");
     expect(content?.style.height).toBe("28px");
+    expect(screen.getByText("button")).toBeTruthy();
+  });
+
+  it("shows distance measurements from the locked element while shift is held", async () => {
+    const adapter = createAdapter();
+
+    render(
+      <ReviewLensProvider
+        config={{
+          adapter,
+          projectKey: "demo",
+          contentId: "article-1",
+          currentUrl: "http://localhost:5173/article/1"
+        }}
+      >
+        <button data-review-id="first">First CTA</button>
+        <button data-review-id="second">Second CTA</button>
+        <ReviewLensOverlay open />
+      </ReviewLensProvider>
+    );
+
+    await screen.findByText("Inspecting");
+    await waitFor(() => expect(screen.queryByText("Authenticate with Google to inspect this page.")).toBeNull());
+
+    const first = screen.getByText("First CTA");
+    const second = screen.getByText("Second CTA");
+    first.getBoundingClientRect = vi.fn(() => ({
+      x: 40,
+      y: 80,
+      top: 80,
+      right: 140,
+      bottom: 120,
+      left: 40,
+      width: 100,
+      height: 40,
+      toJSON: () => ({})
+    })) as Element["getBoundingClientRect"];
+    second.getBoundingClientRect = vi.fn(() => ({
+      x: 180,
+      y: 80,
+      top: 80,
+      right: 280,
+      bottom: 120,
+      left: 180,
+      width: 100,
+      height: 40,
+      toJSON: () => ({})
+    })) as Element["getBoundingClientRect"];
+
+    document.elementFromPoint = vi.fn(() => first);
+    fireEvent.click(window, { clientX: 50, clientY: 90 });
+    fireEvent.keyDown(window, { key: "Shift" });
+    document.elementFromPoint = vi.fn(() => second);
+    fireEvent.mouseMove(window, { clientX: 190, clientY: 90 });
+
+    expect(await screen.findByText("40px")).toBeTruthy();
+
+    fireEvent.keyUp(window, { key: "Shift" });
+    await waitFor(() => expect(screen.queryByText("40px")).toBeNull());
   });
 
   it("scrolls a feedback target into view when its comment is selected", async () => {
@@ -281,6 +372,7 @@ describe("ReviewLensOverlay", () => {
       block: "center",
       inline: "center"
     });
+    await waitFor(() => expect(screen.getByText("No replies yet.")).toBeTruthy());
     expect(screen.getByRole("heading", { name: "Feedback" })).toBeTruthy();
     expect(document.querySelector(".review-lens-highlight")).toBeTruthy();
     expect(document.querySelector(".review-lens-comment--selected")).toBeTruthy();
@@ -318,6 +410,47 @@ describe("ReviewLensOverlay", () => {
 
     await screen.findByText("[data-review-id=\"second\"]");
     expect(screen.queryByText("[data-review-id=\"first\"]")).toBeNull();
+  });
+
+  it("scrolls and focuses the composer when an element is locked", async () => {
+    const adapter = createAdapter();
+    const scrollIntoView = vi.fn();
+    const focus = vi.fn();
+    const requestAnimationFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        callback(0);
+        return 1;
+      });
+
+    render(
+      <ReviewLensProvider
+        config={{
+          adapter,
+          projectKey: "demo",
+          contentId: "article-1",
+          currentUrl: "http://localhost:5173/article/1"
+        }}
+      >
+        <button data-review-id="cta">CTA</button>
+        <ReviewLensOverlay open />
+      </ReviewLensProvider>
+    );
+
+    await screen.findByText("Inspecting");
+    await waitFor(() => expect(screen.queryByText("Authenticate with Google to inspect this page.")).toBeNull());
+
+    document.elementFromPoint = vi.fn(() => screen.getByText("CTA"));
+    fireEvent.click(window, { clientX: 10, clientY: 10 });
+
+    const textarea = await screen.findByLabelText("New feedback");
+    textarea.scrollIntoView = scrollIntoView;
+    textarea.focus = focus;
+    fireEvent.click(window, { clientX: 10, clientY: 10 });
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+    expect(focus).toHaveBeenCalled();
+    requestAnimationFrame.mockRestore();
   });
 
   it("continues hover inspection while an element is locked", async () => {
@@ -503,6 +636,156 @@ describe("ReviewLensOverlay", () => {
     expect(document.querySelector(".review-lens-highlight")).toBeNull();
     expect(screen.queryByText("[data-review-id=\"cta\"]")).toBeNull();
   });
+
+  it("filters feedback by severity", async () => {
+    const adapter = createAdapter({
+      listFeedback: vi.fn(async () => [
+        createFeedbackItem({ id: "feedback-1", comment: "High priority", severity: "high" }),
+        createFeedbackItem({ id: "feedback-2", comment: "Low priority", severity: "low" })
+      ])
+    });
+
+    render(
+      <ReviewLensProvider
+        config={{
+          adapter,
+          projectKey: "demo",
+          contentId: "article-1",
+          currentUrl: "http://localhost:5173/article/1"
+        }}
+      >
+        <button data-review-id="cta">CTA</button>
+        <ReviewLensOverlay open />
+      </ReviewLensProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Feedback 2/ }));
+    expect(screen.queryByLabelText("Filter severity")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    fireEvent.change(screen.getByLabelText("Filter severity"), { target: { value: "high" } });
+
+    expect(screen.getByText("High priority")).toBeTruthy();
+    expect(screen.queryByText("Low priority")).toBeNull();
+    expect(screen.getByRole("button", { name: /Filters 1/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(screen.getByText("High priority")).toBeTruthy();
+    expect(screen.getByText("Low priority")).toBeTruthy();
+  });
+
+  it("shows a grouped summary", async () => {
+    const adapter = createAdapter({
+      listFeedback: vi.fn(async () => [
+        createFeedbackItem({ id: "feedback-1", status: "open", severity: "high" }),
+        createFeedbackItem({ id: "feedback-2", status: "fixed", severity: "low" })
+      ])
+    });
+
+    render(
+      <ReviewLensProvider
+        config={{
+          adapter,
+          projectKey: "demo",
+          contentId: "article-1",
+          currentUrl: "http://localhost:5173/article/1"
+        }}
+      >
+        <ReviewLensOverlay open />
+      </ReviewLensProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Summary" }));
+
+    expect(screen.getByRole("heading", { name: "Status" })).toBeTruthy();
+    expect(screen.getByText("Fixed")).toBeTruthy();
+    expect(screen.getByText("High")).toBeTruthy();
+  });
+
+  it("creates thread replies and stores fixed snapshots", async () => {
+    const updateFeedback = vi.fn(async (id, patch) => ({
+      ...createFeedbackItem({ id }),
+      ...patch,
+      updatedAt: "2026-05-25T00:00:01.000Z"
+    })) as ReviewLensAdapter["updateFeedback"];
+    const createMessage = vi.fn(async (input) => ({
+      ...input,
+      id: "message-1",
+      createdAt: "2026-05-25T00:00:00.000Z"
+    })) as ReviewLensAdapter["createMessage"];
+    const adapter = createAdapter({
+      listFeedback: vi.fn(async () => [createFeedbackItem()]),
+      updateFeedback,
+      createMessage
+    });
+
+    render(
+      <ReviewLensProvider
+        config={{
+          adapter,
+          projectKey: "demo",
+          contentId: "article-1",
+          currentUrl: "http://localhost:5173/article/1"
+        }}
+      >
+        <button data-review-id="cta">CTA</button>
+        <ReviewLensOverlay open />
+      </ReviewLensProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Feedback 1/ }));
+    fireEvent.click(await screen.findByText("Move the CTA higher"));
+    fireEvent.change(screen.getByLabelText("Reply"), { target: { value: "Fixed locally" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+
+    await waitFor(() => expect(createMessage).toHaveBeenCalledOnce());
+    expect(createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ feedbackId: "feedback-1", body: "Fixed locally" })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark fixed" }));
+
+    await waitFor(() => expect(updateFeedback).toHaveBeenCalled());
+    expect(updateFeedback).toHaveBeenCalledWith(
+      "feedback-1",
+      expect.objectContaining({ status: "fixed", fixedCssSnapshot: expect.any(Object) })
+    );
+  });
+
+  it("shows accessibility and token insights for the inspected element", async () => {
+    const adapter = createAdapter();
+
+    render(
+      <ReviewLensProvider
+        config={{
+          adapter,
+          projectKey: "demo",
+          contentId: "article-1",
+          currentUrl: "http://localhost:5173/article/1",
+          designTokens: {
+            fontSize: ["16px"],
+            spacing: ["0px"],
+            lineHeight: ["normal"],
+            radius: ["0px"],
+            color: ["rgb(0, 0, 0)"]
+          }
+        }}
+      >
+        <button data-review-id="icon-button" style={{ fontSize: "13px", width: 20, height: 20 }} />
+        <ReviewLensOverlay open />
+      </ReviewLensProvider>
+    );
+
+    await waitFor(() => expect(screen.queryByText("Authenticate with Google to inspect this page.")).toBeNull());
+
+    const button = document.querySelector("[data-review-id='icon-button']") as HTMLButtonElement;
+    document.elementFromPoint = vi.fn(() => button);
+    fireEvent.mouseMove(window, { clientX: 10, clientY: 10 });
+
+    expect(await screen.findByText("Interactive element has no accessible name.")).toBeTruthy();
+    expect(screen.getByText("Tap target is smaller than 44 x 44.")).toBeTruthy();
+    expect(screen.getByText(/Font size .* is outside configured tokens/)).toBeTruthy();
+  });
 });
 
 function createAdapter(overrides: Partial<ReviewLensAdapter> = {}): ReviewLensAdapter {
@@ -510,7 +793,9 @@ function createAdapter(overrides: Partial<ReviewLensAdapter> = {}): ReviewLensAd
 
   return {
     getCurrentUser: vi.fn(async () => ({ email: "designer@example.com" })),
-    getPermissions: vi.fn(async () => ["create", "read", "resolve"] satisfies ReviewLensPermission[]),
+    getPermissions: vi.fn(
+      async () => ["create", "read", "reply", "update", "assign"] satisfies ReviewLensPermission[]
+    ),
     listFeedback: vi.fn(async () => feedback),
     createFeedback: vi.fn(async (input) => ({
       ...input,
@@ -519,7 +804,7 @@ function createAdapter(overrides: Partial<ReviewLensAdapter> = {}): ReviewLensAd
       createdAt: "2026-05-25T00:00:00.000Z",
       updatedAt: "2026-05-25T00:00:00.000Z"
     })),
-    resolveFeedback: vi.fn(async (id, resolvedBy) => ({
+    updateFeedback: vi.fn(async (id, patch) => ({
       id,
       projectKey: "demo",
       contentId: "article-1",
@@ -528,7 +813,7 @@ function createAdapter(overrides: Partial<ReviewLensAdapter> = {}): ReviewLensAd
       selector: "[data-review-id=\"cta\"]",
       selectorStrategy: "stable-attribute" as const,
       elementFingerprint: { tagName: "button", width: 0, height: 0 },
-      cssSnapshot: {
+      createdCssSnapshot: {
         margin: "",
         marginTop: "",
         marginRight: "",
@@ -549,22 +834,34 @@ function createAdapter(overrides: Partial<ReviewLensAdapter> = {}): ReviewLensAd
         lineHeight: "",
         color: "",
         backgroundColor: "",
+        borderRadius: "",
         width: 0,
         height: 0
       },
       comment: "Done",
-      status: "resolved" as const,
+      status: patch.status ?? "resolved",
+      severity: "medium" as const,
+      category: "visual" as const,
+      viewportWidth: 1024,
+      viewportHeight: 768,
+      viewportPreset: "desktop" as const,
+      attachments: [],
       authorEmail: "designer@example.com",
       createdAt: "2026-05-25T00:00:00.000Z",
       updatedAt: "2026-05-25T00:00:00.000Z",
-      resolvedAt: "2026-05-25T00:00:00.000Z",
-      resolvedBy
+      ...patch
+    })),
+    listMessages: vi.fn(async () => []),
+    createMessage: vi.fn(async (input) => ({
+      ...input,
+      id: "message-1",
+      createdAt: "2026-05-25T00:00:00.000Z"
     })),
     ...overrides
   };
 }
 
-function createFeedbackItem(): ReviewLensFeedback {
+function createFeedbackItem(overrides: Partial<ReviewLensFeedback> = {}): ReviewLensFeedback {
   return {
     id: "feedback-1",
     projectKey: "demo",
@@ -574,7 +871,7 @@ function createFeedbackItem(): ReviewLensFeedback {
     selector: "[data-review-id=\"cta\"]",
     selectorStrategy: "stable-attribute",
     elementFingerprint: { tagName: "button", width: 120, height: 60 },
-    cssSnapshot: {
+    createdCssSnapshot: {
       margin: "0px",
       marginTop: "0px",
       marginRight: "0px",
@@ -595,13 +892,21 @@ function createFeedbackItem(): ReviewLensFeedback {
       lineHeight: "",
       color: "",
       backgroundColor: "",
+      borderRadius: "0px",
       width: 120,
       height: 60
     },
     comment: "Move the CTA higher",
     status: "open",
+    severity: "medium",
+    category: "visual",
+    viewportWidth: 1024,
+    viewportHeight: 768,
+    viewportPreset: "desktop",
+    attachments: [],
     authorEmail: "designer@example.com",
     createdAt: "2026-05-25T00:00:00.000Z",
-    updatedAt: "2026-05-25T00:00:00.000Z"
+    updatedAt: "2026-05-25T00:00:00.000Z",
+    ...overrides
   };
 }

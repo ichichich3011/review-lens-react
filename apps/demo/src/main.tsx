@@ -4,9 +4,13 @@ import {
   ReviewLensOverlay,
   ReviewLensProvider,
   type CreateFeedbackInput,
+  type CreateMessageInput,
   type ReviewLensAdapter,
+  type ReviewLensAttachment,
   type ReviewLensFeedback,
-  type ReviewLensOverlayPlacement
+  type ReviewLensOverlayPlacement,
+  type ReviewLensThreadMessage,
+  type UpdateFeedbackInput
 } from "review-lens-react";
 import "review-lens-react/styles.css";
 import "./styles.css";
@@ -22,7 +26,14 @@ function App() {
         adapter,
         projectKey: "demo-app",
         contentId: "article-42",
-        currentUrl: "http://localhost:5173/articles/42?preview=true"
+        currentUrl: "http://localhost:5173/articles/42?preview=true",
+        designTokens: {
+          spacing: ["0px", "8px", "12px", "16px", "24px", "32px", "48px"],
+          fontSize: ["14px", "16px", "18px", "20px", "48px"],
+          lineHeight: ["20px", "24px", "56px", "normal"],
+          color: ["rgb(15, 23, 42)", "rgb(255, 255, 255)", "rgb(37, 99, 235)"],
+          radius: ["0px", "8px", "12px", "999px"]
+        }
       }}
     >
       <main>
@@ -68,20 +79,26 @@ function App() {
           </article>
         </section>
       </main>
-      <ReviewLensOverlay open={open} onOpenChange={setOpen} placement={placement} />
+      <ReviewLensOverlay
+        open={open}
+        onOpenChange={setOpen}
+        placement={placement}
+        syncSelectionToUrl
+      />
     </ReviewLensProvider>
   );
 }
 
 function createMemoryAdapter(): ReviewLensAdapter {
   let feedback: ReviewLensFeedback[] = [];
+  let messages: ReviewLensThreadMessage[] = [];
 
   return {
     async getCurrentUser() {
       return { email: "designer@example.com" };
     },
     async getPermissions() {
-      return ["create", "read", "resolve"];
+      return ["create", "read", "reply", "update", "assign"];
     },
     async listFeedback(params) {
       return feedback.filter(
@@ -96,18 +113,22 @@ function createMemoryAdapter(): ReviewLensAdapter {
       const item: ReviewLensFeedback = {
         ...input,
         id: crypto.randomUUID(),
-        status: "open",
+        attachments: [],
         createdAt: now,
         updatedAt: now
       };
       feedback = [item, ...feedback];
       return item;
     },
-    async resolveFeedback(id: string, resolvedBy: string) {
+    async updateFeedback(id: string, patch: UpdateFeedbackInput) {
       const now = new Date().toISOString();
       feedback = feedback.map((item) =>
         item.id === id
-          ? { ...item, status: "resolved", updatedAt: now, resolvedAt: now, resolvedBy }
+          ? {
+              ...item,
+              ...patch,
+              updatedAt: now
+            }
           : item
       );
 
@@ -118,6 +139,31 @@ function createMemoryAdapter(): ReviewLensAdapter {
       }
 
       return item;
+    },
+    async listMessages(feedbackId: string) {
+      return messages.filter((message) => message.feedbackId === feedbackId);
+    },
+    async createMessage(input: CreateMessageInput) {
+      const message: ReviewLensThreadMessage = {
+        ...input,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString()
+      };
+      messages = [...messages, message];
+      return message;
+    },
+    async uploadAttachment(feedbackId: string, input): Promise<ReviewLensAttachment> {
+      const now = new Date().toISOString();
+      const url =
+        typeof input.data === "string" ? input.data : URL.createObjectURL(input.data);
+      return {
+        id: crypto.randomUUID(),
+        feedbackId,
+        type: "screenshot",
+        url,
+        createdAt: now,
+        createdBy: input.createdBy
+      };
     }
   };
 }

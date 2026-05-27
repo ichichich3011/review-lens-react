@@ -1,16 +1,25 @@
 import type {
+  CreateMessageInput,
   CreateFeedbackInput,
   CssSnapshot,
+  FeedbackCategory,
+  FeedbackSeverity,
+  FeedbackStatus,
+  ReviewLensAttachment,
   ReviewLensAdapter,
   ReviewLensFeedback,
   ReviewLensPermission,
-  ReviewLensRole
+  ReviewLensRole,
+  ReviewLensThreadMessage,
+  ReviewLensViewportPreset,
+  UpdateFeedbackInput
 } from "../types";
 
 type GoogleSheetsAdapterConfig = {
   googleClientId: string;
   spreadsheetId: string;
   feedbackSheetName?: string;
+  messagesSheetName?: string;
   usersSheetName?: string;
   projectsSheetName?: string;
 };
@@ -45,6 +54,7 @@ export function createGoogleSheetsAdapter(
   config: GoogleSheetsAdapterConfig
 ): ReviewLensAdapter {
   const feedbackSheetName = config.feedbackSheetName ?? "Feedback";
+  const messagesSheetName = config.messagesSheetName ?? "Messages";
   const usersSheetName = config.usersSheetName ?? "Users";
   let tokenPromise: Promise<string> | undefined;
   let currentEmail: string | undefined;
@@ -138,7 +148,7 @@ export function createGoogleSheetsAdapter(
       const item: ReviewLensFeedback = {
         ...input,
         id: crypto.randomUUID(),
-        status: "open",
+        attachments: [],
         createdAt: now,
         updatedAt: now
       };
@@ -151,42 +161,70 @@ export function createGoogleSheetsAdapter(
       return item;
     },
 
-    async resolveFeedback(id, resolvedBy) {
+    async updateFeedback(id: string, patch: UpdateFeedbackInput) {
       const rows = await readRows(feedbackSheetName);
       const header = rows[0] ?? feedbackHeader;
       const idColumn = header.indexOf("id");
-      const statusColumn = header.indexOf("status");
-      const updatedAtColumn = header.indexOf("updatedAt");
-      const resolvedAtColumn = header.indexOf("resolvedAt");
-      const resolvedByColumn = header.indexOf("resolvedBy");
+
+      if (idColumn === -1) {
+        throw new Error(`Sheet ${feedbackSheetName} is missing an id column`);
+      }
+
       const rowIndex = rows.findIndex((row, index) => index > 0 && row[idColumn] === id);
 
       if (rowIndex < 1) {
         throw new Error(`Feedback ${id} was not found`);
       }
 
-      const row = [...rows[rowIndex]];
       const now = new Date().toISOString();
-      row[statusColumn] = "resolved";
-      row[updatedAtColumn] = now;
-      row[resolvedAtColumn] = now;
-      row[resolvedByColumn] = resolvedBy;
+      const current = rowToFeedback(rowToObject(header, rows[rowIndex]));
+
+      if (!current) {
+        throw new Error(`Feedback ${id} could not be parsed before updating`);
+      }
+
+      const updated: ReviewLensFeedback = {
+        ...current,
+        ...patch,
+        updatedAt: now
+      };
+      const row = feedbackToRow(updated);
 
       await sheetsFetch(
-        `/values/${encodeURIComponent(feedbackSheetName)}!A${rowIndex + 1}:Q${rowIndex + 1}?valueInputOption=RAW`,
+        `/values/${encodeURIComponent(feedbackSheetName)}!A${rowIndex + 1}:${columnLetter(
+          feedbackHeader.length
+        )}${rowIndex + 1}?valueInputOption=RAW`,
         {
           method: "PUT",
           body: JSON.stringify({ values: [row] })
         }
       );
 
-      const feedback = rowToFeedback(rowToObject(header, row));
+      return updated;
+    },
 
-      if (!feedback) {
-        throw new Error(`Feedback ${id} could not be parsed after resolving`);
-      }
+    async listMessages(feedbackId: string) {
+      const rows = rowsToObjects(await readRows(messagesSheetName));
+      return rows
+        .map(rowToMessage)
+        .filter((message): message is ReviewLensThreadMessage => message !== null)
+        .filter((message) => message.feedbackId === feedbackId)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    },
 
-      return feedback;
+    async createMessage(input: CreateMessageInput) {
+      const message: ReviewLensThreadMessage = {
+        ...input,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString()
+      };
+
+      await sheetsFetch(`/values/${encodeURIComponent(messagesSheetName)}:append?valueInputOption=RAW`, {
+        method: "POST",
+        body: JSON.stringify({ values: [messageToRow(message)] })
+      });
+
+      return message;
     }
   };
 }
@@ -200,15 +238,29 @@ const feedbackHeader = [
   "selector",
   "selectorStrategy",
   "elementFingerprintJson",
-  "cssSnapshotJson",
+  "createdCssSnapshotJson",
   "comment",
   "status",
+  "severity",
+  "category",
+  "assigneeEmail",
+  "viewportWidth",
+  "viewportHeight",
+  "viewportPreset",
+  "screenshotUrl",
+  "screenshotThumbnailUrl",
+  "attachmentJson",
   "authorEmail",
   "createdAt",
   "updatedAt",
+  "fixedCssSnapshotJson",
+  "fixedAt",
+  "fixedBy",
   "resolvedAt",
   "resolvedBy"
 ];
+
+const messagesHeader = ["id", "feedbackId", "body", "authorEmail", "createdAt"];
 
 function feedbackToRow(item: ReviewLensFeedback): string[] {
   return [
@@ -220,15 +272,31 @@ function feedbackToRow(item: ReviewLensFeedback): string[] {
     item.selector,
     item.selectorStrategy,
     JSON.stringify(item.elementFingerprint),
-    JSON.stringify(item.cssSnapshot),
+    JSON.stringify(item.createdCssSnapshot),
     item.comment,
     item.status,
+    item.severity,
+    item.category,
+    item.assigneeEmail ?? "",
+    String(item.viewportWidth),
+    String(item.viewportHeight),
+    item.viewportPreset,
+    item.screenshotUrl ?? "",
+    item.screenshotThumbnailUrl ?? "",
+    JSON.stringify(item.attachments),
     item.authorEmail,
     item.createdAt,
     item.updatedAt,
+    item.fixedCssSnapshot ? JSON.stringify(item.fixedCssSnapshot) : "",
+    item.fixedAt ?? "",
+    item.fixedBy ?? "",
     item.resolvedAt ?? "",
     item.resolvedBy ?? ""
   ];
+}
+
+function messageToRow(item: ReviewLensThreadMessage): string[] {
+  return messagesHeader.map((key) => item[key as keyof ReviewLensThreadMessage]);
 }
 
 function rowsToObjects(rows: string[][]): Record<string, string>[] {
@@ -263,14 +331,40 @@ function rowToFeedback(row: Record<string, string>): ReviewLensFeedback | null {
       width: 0,
       height: 0
     }),
-    cssSnapshot: parseCssSnapshot(row.cssSnapshotJson),
+    createdCssSnapshot: parseCssSnapshot(row.createdCssSnapshotJson),
+    fixedCssSnapshot: row.fixedCssSnapshotJson ? parseCssSnapshot(row.fixedCssSnapshotJson) : undefined,
     comment: row.comment,
-    status: row.status === "resolved" ? "resolved" : "open",
+    status: parseStatus(row.status),
+    severity: parseSeverity(row.severity),
+    category: parseCategory(row.category),
+    assigneeEmail: row.assigneeEmail || undefined,
+    viewportWidth: Number(row.viewportWidth) || 0,
+    viewportHeight: Number(row.viewportHeight) || 0,
+    viewportPreset: parseViewportPreset(row.viewportPreset),
+    screenshotUrl: row.screenshotUrl || undefined,
+    screenshotThumbnailUrl: row.screenshotThumbnailUrl || undefined,
+    attachments: parseJson<ReviewLensAttachment[]>(row.attachmentJson, []),
     authorEmail: row.authorEmail,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    fixedAt: row.fixedAt || undefined,
+    fixedBy: row.fixedBy || undefined,
     resolvedAt: row.resolvedAt || undefined,
     resolvedBy: row.resolvedBy || undefined
+  };
+}
+
+function rowToMessage(row: Record<string, string>): ReviewLensThreadMessage | null {
+  if (!row.id || !row.feedbackId) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    feedbackId: row.feedbackId,
+    body: row.body,
+    authorEmail: row.authorEmail,
+    createdAt: row.createdAt
   };
 }
 
@@ -306,6 +400,7 @@ function parseCssSnapshot(value: string): CssSnapshot {
     lineHeight: snapshot.lineHeight ?? "",
     color: snapshot.color ?? "",
     backgroundColor: snapshot.backgroundColor ?? "",
+    borderRadius: snapshot.borderRadius ?? "",
     width: snapshot.width ?? 0,
     height: snapshot.height ?? 0
   };
@@ -313,14 +408,70 @@ function parseCssSnapshot(value: string): CssSnapshot {
 
 function roleToPermissions(role: ReviewLensRole): ReviewLensPermission[] {
   if (role === "admin") {
-    return ["create", "read", "resolve"];
+    return ["create", "read", "reply", "update", "assign"];
   }
 
   if (role === "developer") {
-    return ["read", "resolve"];
+    return ["read", "reply", "update", "assign"];
   }
 
-  return ["create", "read"];
+  return ["create", "read", "reply"];
+}
+
+function parseStatus(value: string): FeedbackStatus {
+  if (
+    value === "in_progress" ||
+    value === "needs_clarification" ||
+    value === "fixed" ||
+    value === "wontfix" ||
+    value === "resolved"
+  ) {
+    return value;
+  }
+
+  return "open";
+}
+
+function parseSeverity(value: string): FeedbackSeverity {
+  if (value === "low" || value === "high") {
+    return value;
+  }
+
+  return "medium";
+}
+
+function parseCategory(value: string): FeedbackCategory {
+  if (
+    value === "visual" ||
+    value === "copy" ||
+    value === "accessibility" ||
+    value === "responsive"
+  ) {
+    return value;
+  }
+
+  return "bug";
+}
+
+function parseViewportPreset(value: string): ReviewLensViewportPreset {
+  if (value === "mobile" || value === "tablet" || value === "desktop") {
+    return value;
+  }
+
+  return "custom";
+}
+
+function columnLetter(columnNumber: number): string {
+  let remaining = columnNumber;
+  let result = "";
+
+  while (remaining > 0) {
+    const modulo = (remaining - 1) % 26;
+    result = String.fromCharCode(65 + modulo) + result;
+    remaining = Math.floor((remaining - modulo) / 26);
+  }
+
+  return result;
 }
 
 async function requestGoogleToken(clientId: string): Promise<string> {

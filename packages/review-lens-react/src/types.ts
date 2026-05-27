@@ -1,8 +1,17 @@
 import type { ReactNode } from "react";
 
-export type FeedbackStatus = "open" | "resolved";
+export type FeedbackStatus =
+  | "open"
+  | "in_progress"
+  | "needs_clarification"
+  | "fixed"
+  | "wontfix"
+  | "resolved";
+export type FeedbackSeverity = "low" | "medium" | "high";
+export type FeedbackCategory = "bug" | "visual" | "copy" | "accessibility" | "responsive";
 export type ReviewLensRole = "designer" | "developer" | "admin";
-export type ReviewLensPermission = "create" | "read" | "resolve";
+export type ReviewLensPermission = "create" | "read" | "reply" | "update" | "assign";
+export type ReviewLensViewportPreset = "mobile" | "tablet" | "desktop" | "custom";
 
 export type CssSnapshot = {
   margin: string;
@@ -25,6 +34,7 @@ export type CssSnapshot = {
   lineHeight: string;
   color: string;
   backgroundColor: string;
+  borderRadius: string;
   width: number;
   height: number;
 };
@@ -56,20 +66,91 @@ export type ReviewLensFeedback = {
   selector: string;
   selectorStrategy: ReviewLensTarget["selectorStrategy"];
   elementFingerprint: ElementFingerprint;
-  cssSnapshot: CssSnapshot;
+  createdCssSnapshot: CssSnapshot;
+  fixedCssSnapshot?: CssSnapshot;
   comment: string;
   status: FeedbackStatus;
+  severity: FeedbackSeverity;
+  category: FeedbackCategory;
+  assigneeEmail?: string;
+  viewportWidth: number;
+  viewportHeight: number;
+  viewportPreset: ReviewLensViewportPreset;
+  screenshotUrl?: string;
+  screenshotThumbnailUrl?: string;
+  attachments: ReviewLensAttachment[];
   authorEmail: string;
   createdAt: string;
   updatedAt: string;
+  fixedAt?: string;
+  fixedBy?: string;
   resolvedAt?: string;
   resolvedBy?: string;
 };
 
 export type CreateFeedbackInput = Omit<
   ReviewLensFeedback,
-  "id" | "status" | "createdAt" | "updatedAt" | "resolvedAt" | "resolvedBy"
+  | "id"
+  | "attachments"
+  | "createdAt"
+  | "updatedAt"
+  | "fixedAt"
+  | "fixedBy"
+  | "resolvedAt"
+  | "resolvedBy"
 >;
+
+export type UpdateFeedbackInput = Partial<
+  Pick<
+    ReviewLensFeedback,
+    | "status"
+    | "severity"
+    | "category"
+    | "assigneeEmail"
+    | "screenshotUrl"
+    | "screenshotThumbnailUrl"
+    | "attachments"
+    | "fixedCssSnapshot"
+    | "fixedAt"
+    | "fixedBy"
+    | "resolvedAt"
+    | "resolvedBy"
+  >
+>;
+
+export type ReviewLensThreadMessage = {
+  id: string;
+  feedbackId: string;
+  body: string;
+  authorEmail: string;
+  createdAt: string;
+};
+
+export type CreateMessageInput = Omit<ReviewLensThreadMessage, "id" | "createdAt">;
+
+export type ReviewLensAttachment = {
+  id: string;
+  feedbackId: string;
+  type: "screenshot";
+  url: string;
+  thumbnailUrl?: string;
+  createdAt: string;
+  createdBy: string;
+};
+
+export type CreateAttachmentInput = {
+  type: "screenshot";
+  data: Blob | string;
+  createdBy: string;
+};
+
+export type ReviewLensDesignTokens = {
+  spacing?: string[];
+  fontSize?: string[];
+  lineHeight?: string[];
+  color?: string[];
+  radius?: string[];
+};
 
 export type ReviewLensAdapter = {
   getCurrentUser(): Promise<{ email: string }>;
@@ -80,7 +161,13 @@ export type ReviewLensAdapter = {
     normalizedPath: string;
   }): Promise<ReviewLensFeedback[]>;
   createFeedback(input: CreateFeedbackInput): Promise<ReviewLensFeedback>;
-  resolveFeedback(id: string, resolvedBy: string): Promise<ReviewLensFeedback>;
+  updateFeedback(id: string, patch: UpdateFeedbackInput): Promise<ReviewLensFeedback>;
+  listMessages(feedbackId: string): Promise<ReviewLensThreadMessage[]>;
+  createMessage(input: CreateMessageInput): Promise<ReviewLensThreadMessage>;
+  uploadAttachment?(
+    feedbackId: string,
+    input: CreateAttachmentInput
+  ): Promise<ReviewLensAttachment>;
 };
 
 export type ReviewLensConfig = {
@@ -91,6 +178,12 @@ export type ReviewLensConfig = {
   contentId: string;
   currentUrl?: string;
   normalizeUrl?: (url: string) => string;
+  designTokens?: ReviewLensDesignTokens;
+  captureScreenshot?: (target: ReviewLensTarget) => Promise<Blob | string>;
+  uploadAttachment?: (
+    feedbackId: string,
+    input: CreateAttachmentInput
+  ) => Promise<ReviewLensAttachment>;
   adapter?: ReviewLensAdapter;
 };
 

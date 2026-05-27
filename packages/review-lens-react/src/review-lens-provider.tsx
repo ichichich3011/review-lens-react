@@ -8,12 +8,17 @@ import {
 } from "react";
 import { createGoogleSheetsAdapter } from "./sheets/google-sheets-adapter";
 import type {
+  CreateAttachmentInput,
   CreateFeedbackInput,
+  CreateMessageInput,
   ReviewLensAdapter,
+  ReviewLensAttachment,
   ReviewLensConfig,
   ReviewLensFeedback,
   ReviewLensPermission,
-  ReviewLensProviderProps
+  ReviewLensProviderProps,
+  ReviewLensThreadMessage,
+  UpdateFeedbackInput
 } from "./types";
 import { normalizeReviewUrl } from "./url/normalize-review-url";
 
@@ -26,7 +31,13 @@ type ReviewLensContextValue = {
   normalizedPath: string;
   refreshFeedback: () => Promise<void>;
   createFeedback: (input: CreateFeedbackInput) => Promise<ReviewLensFeedback>;
-  resolveFeedback: (id: string) => Promise<ReviewLensFeedback>;
+  updateFeedback: (id: string, patch: UpdateFeedbackInput) => Promise<ReviewLensFeedback>;
+  listMessages: (feedbackId: string) => Promise<ReviewLensThreadMessage[]>;
+  createMessage: (input: CreateMessageInput) => Promise<ReviewLensThreadMessage>;
+  uploadAttachment: (
+    feedbackId: string,
+    input: CreateAttachmentInput
+  ) => Promise<ReviewLensAttachment>;
 };
 
 const ReviewLensContext = createContext<ReviewLensContextValue | null>(null);
@@ -93,15 +104,38 @@ export function ReviewLensProvider({ config, children }: ReviewLensProviderProps
     [adapter]
   );
 
-  const resolveFeedback = useCallback(
-    async (id: string) => {
-      const item = await adapter.resolveFeedback(id, currentUser?.email ?? "");
+  const updateFeedback = useCallback(
+    async (id: string, patch: UpdateFeedbackInput) => {
+      const item = await adapter.updateFeedback(id, patch);
       setFeedback((current) =>
         current.map((feedbackItem) => (feedbackItem.id === id ? item : feedbackItem))
       );
       return item;
     },
-    [adapter, currentUser?.email]
+    [adapter]
+  );
+
+  const listMessages = useCallback(
+    (feedbackId: string) => adapter.listMessages(feedbackId),
+    [adapter]
+  );
+
+  const createMessage = useCallback(
+    (input: CreateMessageInput) => adapter.createMessage(input),
+    [adapter]
+  );
+
+  const uploadAttachment = useCallback(
+    async (feedbackId: string, input: CreateAttachmentInput) => {
+      const upload = config.uploadAttachment ?? adapter.uploadAttachment;
+
+      if (!upload) {
+        throw new Error("Review Lens attachment upload is not configured");
+      }
+
+      return upload(feedbackId, input);
+    },
+    [adapter, config]
   );
 
   const value = useMemo(
@@ -114,7 +148,10 @@ export function ReviewLensProvider({ config, children }: ReviewLensProviderProps
       normalizedPath,
       refreshFeedback,
       createFeedback,
-      resolveFeedback
+      updateFeedback,
+      listMessages,
+      createMessage,
+      uploadAttachment
     }),
     [
       adapter,
@@ -125,7 +162,10 @@ export function ReviewLensProvider({ config, children }: ReviewLensProviderProps
       normalizedPath,
       permissions,
       refreshFeedback,
-      resolveFeedback
+      updateFeedback,
+      listMessages,
+      createMessage,
+      uploadAttachment
     ]
   );
 
@@ -149,4 +189,3 @@ function requireConfig<T>(value: T | undefined, key: string): T {
 
   return value;
 }
-
