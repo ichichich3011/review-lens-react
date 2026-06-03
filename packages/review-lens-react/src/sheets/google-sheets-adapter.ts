@@ -17,7 +17,8 @@ import type {
 
 type GoogleSheetsAdapterConfig = {
   googleClientId: string;
-  spreadsheetId: string;
+  contentSpreadsheetId: string;
+  usersSpreadsheetId: string;
   feedbackSheetName?: string;
   messagesSheetName?: string;
   usersSheetName?: string;
@@ -64,10 +65,14 @@ export function createGoogleSheetsAdapter(
     return tokenPromise;
   }
 
-  async function sheetsFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  async function sheetsFetch<T>(
+    targetSpreadsheetId: string,
+    path: string,
+    init?: RequestInit
+  ): Promise<T> {
     const token = await getToken();
     const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${config.spreadsheetId}${path}`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}${path}`,
       {
         ...init,
         headers: {
@@ -85,8 +90,9 @@ export function createGoogleSheetsAdapter(
     return response.json() as Promise<T>;
   }
 
-  async function readRows(sheetName: string): Promise<string[][]> {
+  async function readRows(targetSpreadsheetId: string, sheetName: string): Promise<string[][]> {
     const data = await sheetsFetch<{ values?: string[][] }>(
+      targetSpreadsheetId,
       `/values/${encodeURIComponent(sheetName)}`
     );
     return data.values ?? [];
@@ -116,7 +122,10 @@ export function createGoogleSheetsAdapter(
     },
 
     async getPermissions(projectKey) {
-      const [{ email }, rows] = await Promise.all([this.getCurrentUser(), readRows(usersSheetName)]);
+      const [{ email }, rows] = await Promise.all([
+        this.getCurrentUser(),
+        readRows(config.usersSpreadsheetId, usersSheetName)
+      ]);
       const users = rowsToObjects(rows);
       const normalizedEmail = email.toLowerCase();
       const match = users.find(
@@ -130,7 +139,7 @@ export function createGoogleSheetsAdapter(
     },
 
     async listFeedback(params) {
-      const rows = rowsToObjects(await readRows(feedbackSheetName));
+      const rows = rowsToObjects(await readRows(config.contentSpreadsheetId, feedbackSheetName));
       return rows
         .map(rowToFeedback)
         .filter((item): item is ReviewLensFeedback => item !== null)
@@ -153,16 +162,20 @@ export function createGoogleSheetsAdapter(
         updatedAt: now
       };
 
-      await sheetsFetch(`/values/${encodeURIComponent(feedbackSheetName)}:append?valueInputOption=RAW`, {
-        method: "POST",
-        body: JSON.stringify({ values: [feedbackToRow(item)] })
-      });
+      await sheetsFetch(
+        config.contentSpreadsheetId,
+        `/values/${encodeURIComponent(feedbackSheetName)}:append?valueInputOption=RAW`,
+        {
+          method: "POST",
+          body: JSON.stringify({ values: [feedbackToRow(item)] })
+        }
+      );
 
       return item;
     },
 
     async updateFeedback(id: string, patch: UpdateFeedbackInput) {
-      const rows = await readRows(feedbackSheetName);
+      const rows = await readRows(config.contentSpreadsheetId, feedbackSheetName);
       const header = rows[0] ?? feedbackHeader;
       const idColumn = header.indexOf("id");
 
@@ -191,6 +204,7 @@ export function createGoogleSheetsAdapter(
       const row = feedbackToRow(updated);
 
       await sheetsFetch(
+        config.contentSpreadsheetId,
         `/values/${encodeURIComponent(feedbackSheetName)}!A${rowIndex + 1}:${columnLetter(
           feedbackHeader.length
         )}${rowIndex + 1}?valueInputOption=RAW`,
@@ -204,7 +218,7 @@ export function createGoogleSheetsAdapter(
     },
 
     async listMessages(feedbackId: string) {
-      const rows = rowsToObjects(await readRows(messagesSheetName));
+      const rows = rowsToObjects(await readRows(config.contentSpreadsheetId, messagesSheetName));
       return rows
         .map(rowToMessage)
         .filter((message): message is ReviewLensThreadMessage => message !== null)
@@ -219,10 +233,14 @@ export function createGoogleSheetsAdapter(
         createdAt: new Date().toISOString()
       };
 
-      await sheetsFetch(`/values/${encodeURIComponent(messagesSheetName)}:append?valueInputOption=RAW`, {
-        method: "POST",
-        body: JSON.stringify({ values: [messageToRow(message)] })
-      });
+      await sheetsFetch(
+        config.contentSpreadsheetId,
+        `/values/${encodeURIComponent(messagesSheetName)}:append?valueInputOption=RAW`,
+        {
+          method: "POST",
+          body: JSON.stringify({ values: [messageToRow(message)] })
+        }
+      );
 
       return message;
     }

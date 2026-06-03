@@ -52,7 +52,8 @@ export function AppReviewMode() {
     <ReviewLensProvider
       config={{
         googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
-        spreadsheetId: import.meta.env.VITE_REVIEW_LENS_SPREADSHEET_ID,
+        contentSpreadsheetId: import.meta.env.VITE_REVIEW_LENS_CONTENT_SPREADSHEET_ID,
+        usersSpreadsheetId: import.meta.env.VITE_REVIEW_LENS_USERS_SPREADSHEET_ID,
         projectKey: "landing-pages-app",
         contentId: "article-123"
       }}
@@ -92,7 +93,8 @@ Config:
 | Name | Required | Description |
 | --- | --- | --- |
 | `googleClientId` | yes, unless `adapter` is provided | OAuth web client id from Google Cloud. |
-| `spreadsheetId` | yes, unless `adapter` is provided | Google Sheet id from the Sheet URL. |
+| `contentSpreadsheetId` | yes, unless `adapter` is provided | Google Sheet id for review feedback and messages. |
+| `usersSpreadsheetId` | yes, unless `adapter` is provided | Google Sheet id for user roles and authentication metadata. |
 | `sheetName` | no | Feedback sheet name. Defaults to `Feedback`. |
 | `projectKey` | yes | Stable app/project key, for example `landing-pages-app`. |
 | `contentId` | yes | Stable content key shared by localhost and production. |
@@ -186,15 +188,17 @@ https://your-production-app.example.com
 
 Use the generated client id as `googleClientId`.
 
-### 5. Create the Google Sheet
+### 5. Create the Google Sheets
 
-Create one shared Google Sheet and copy its id from the URL:
+Create a content Google Sheet and copy its id from the URL:
 
 ```text
 https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
 ```
 
-Share the Sheet with every reviewer/developer who should use the overlay. Users need Sheet access because the browser writes directly to the Google Sheets API as the signed-in user.
+Use this id as `contentSpreadsheetId`. Share the content Sheet with every reviewer/developer who should create or update review content.
+
+Create a separate users/auth Google Sheet and use its id as `usersSpreadsheetId`. Normal reviewers only need read access to this Sheet; admins can keep write access to themselves.
 
 ### 6. Add the `Feedback` tab
 
@@ -214,7 +218,7 @@ Create a tab named `Messages` with this header row:
 id,feedbackId,body,authorEmail,createdAt
 ```
 
-### 8. Add the `Users` tab
+### 8. Add the `Users` tab in the users Sheet
 
 Create a tab named `Users` with this header row:
 
@@ -261,7 +265,8 @@ If your app has a different URL model, pass a custom normalizer:
 <ReviewLensProvider
   config={{
     googleClientId,
-    spreadsheetId,
+    contentSpreadsheetId,
+    usersSpreadsheetId,
     projectKey: "landing-pages-app",
     contentId: article.id,
     normalizeUrl: (url) => new URL(url).pathname.replace(/^\/preview/, "")

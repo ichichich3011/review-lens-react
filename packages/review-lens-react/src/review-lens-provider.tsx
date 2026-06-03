@@ -50,10 +50,17 @@ export function ReviewLensProvider({ config, children }: ReviewLensProviderProps
 
     return createGoogleSheetsAdapter({
       googleClientId: requireConfig(config.googleClientId, "googleClientId"),
-      spreadsheetId: requireConfig(config.spreadsheetId, "spreadsheetId"),
+      contentSpreadsheetId: requireConfig(config.contentSpreadsheetId, "contentSpreadsheetId"),
+      usersSpreadsheetId: requireConfig(config.usersSpreadsheetId, "usersSpreadsheetId"),
       feedbackSheetName: config.sheetName ?? "Feedback"
     });
-  }, [config.adapter, config.googleClientId, config.sheetName, config.spreadsheetId]);
+  }, [
+    config.adapter,
+    config.contentSpreadsheetId,
+    config.googleClientId,
+    config.sheetName,
+    config.usersSpreadsheetId
+  ]);
 
   const currentUrl = config.currentUrl ?? window.location.href;
   const normalizedPath = (config.normalizeUrl ?? normalizeReviewUrl)(currentUrl);

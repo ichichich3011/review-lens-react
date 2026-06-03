@@ -172,7 +172,8 @@ export type ReviewLensAdapter = {
 
 export type ReviewLensConfig = {
   googleClientId?: string;
-  spreadsheetId?: string;
+  contentSpreadsheetId?: string;
+  usersSpreadsheetId?: string;
   sheetName?: string;
   projectKey: string;
   contentId: string;
