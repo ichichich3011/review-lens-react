@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewLensOverlay } from "./review-lens-overlay";
 import { ReviewLensProvider } from "./review-lens-provider";
@@ -23,6 +23,25 @@ describe("ReviewLensOverlay", () => {
 
     const panel = await screen.findByRole("complementary");
     expect(panel.className).toContain("review-lens-panel--bottom-left");
+  });
+
+  it("shows the Review Lens logo in the panel header", async () => {
+    const adapter = createAdapter();
+
+    render(
+      <ReviewLensProvider
+        config={{
+          adapter,
+          projectKey: "demo",
+          contentId: "article-1",
+          currentUrl: "http://localhost:5173/article/1"
+        }}
+      >
+        <ReviewLensOverlay open />
+      </ReviewLensProvider>
+    );
+
+    expect(await screen.findByRole("img", { name: "Review Lens logo" })).toBeTruthy();
   });
 
   it("keeps the panel height stable and scrolls inside the panel body", async () => {
@@ -789,6 +808,208 @@ describe("ReviewLensOverlay", () => {
     expect(screen.getByText("Tap target is smaller than 44 x 44.")).toBeTruthy();
     expect(screen.getByText(/Font size .* is outside configured tokens/)).toBeTruthy();
     expect(screen.queryByText(/Padding .* is outside configured tokens/)).toBeNull();
+  });
+
+  describe("syncSelectionToUrl", () => {
+    it("auto-opens the panel and selects the feedback when the URL has a reviewLensFeedback param", async () => {
+      const onOpenChange = vi.fn();
+      const feedbackItem = createFeedbackItem({ id: "fb-link-1" });
+      const adapter = createAdapter({
+        listFeedback: vi.fn(async () => [feedbackItem])
+      });
+
+      Object.defineProperty(window, "location", {
+        value: new URL("http://localhost/article/1?reviewLensFeedback=fb-link-1"),
+        configurable: true
+      });
+      window.history.replaceState = vi.fn();
+
+      render(
+        <ReviewLensProvider
+          config={{
+            adapter,
+            projectKey: "demo",
+            contentId: "article-1",
+            currentUrl: "http://localhost/article/1"
+          }}
+        >
+          <ReviewLensOverlay open={false} onOpenChange={onOpenChange} syncSelectionToUrl />
+        </ReviewLensProvider>
+      );
+
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(true));
+      expect(window.location.search).toContain("reviewLensFeedback=fb-link-1");
+    });
+
+    it("clears the URL param when the panel closes", async () => {
+      const feedbackItem = createFeedbackItem({ id: "fb-link-2" });
+      const adapter = createAdapter({
+        listFeedback: vi.fn(async () => [feedbackItem])
+      });
+
+      const url = new URL("http://localhost:5173/article/1?reviewLensFeedback=fb-link-2");
+      Object.defineProperty(window, "location", { value: url, configurable: true });
+      window.history.replaceState = vi.fn((_, __, next) => {
+        Object.defineProperty(window, "location", { value: new URL(String(next)), configurable: true });
+      });
+
+      const { rerender } = render(
+        <ReviewLensProvider
+          config={{
+            adapter,
+            projectKey: "demo",
+            contentId: "article-1",
+            currentUrl: "http://localhost:5173/article/1"
+          }}
+        >
+          <ReviewLensOverlay open syncSelectionToUrl />
+        </ReviewLensProvider>
+      );
+
+      await screen.findByRole("tab", { name: /Feedback 1/ });
+
+      await act(async () => {
+        rerender(
+          <ReviewLensProvider
+            config={{
+              adapter,
+              projectKey: "demo",
+              contentId: "article-1",
+              currentUrl: "http://localhost:5173/article/1"
+            }}
+          >
+            <ReviewLensOverlay open={false} syncSelectionToUrl />
+          </ReviewLensProvider>
+        );
+      });
+
+      expect(window.history.replaceState).toHaveBeenCalled();
+      expect(window.location.search).not.toContain("reviewLensFeedback");
+    });
+
+    it("shows a Copy link button on the selected feedback detail when syncSelectionToUrl is enabled", async () => {
+      const adapter = createAdapter({
+        listFeedback: vi.fn(async () => [createFeedbackItem()])
+      });
+
+      render(
+        <ReviewLensProvider
+          config={{
+            adapter,
+            projectKey: "demo",
+            contentId: "article-1",
+            currentUrl: "http://localhost:5173/article/1"
+          }}
+        >
+          <ReviewLensOverlay open syncSelectionToUrl />
+        </ReviewLensProvider>
+      );
+
+      fireEvent.click(await screen.findByRole("tab", { name: /Feedback 1/ }));
+      fireEvent.click(await screen.findByText("Move the CTA higher"));
+
+      expect(await screen.findByRole("button", { name: "Copy link to this feedback" })).toBeTruthy();
+    });
+
+    it("does not show a Copy link button when syncSelectionToUrl is disabled", async () => {
+      const adapter = createAdapter({
+        listFeedback: vi.fn(async () => [createFeedbackItem()])
+      });
+
+      render(
+        <ReviewLensProvider
+          config={{
+            adapter,
+            projectKey: "demo",
+            contentId: "article-1",
+            currentUrl: "http://localhost:5173/article/1"
+          }}
+        >
+          <ReviewLensOverlay open />
+        </ReviewLensProvider>
+      );
+
+      fireEvent.click(await screen.findByRole("tab", { name: /Feedback 1/ }));
+      fireEvent.click(await screen.findByText("Move the CTA higher"));
+
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Copy link to this feedback" })).toBeNull());
+    });
+
+    it("copies a feedback link with the selected feedback id", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText },
+        configurable: true
+      });
+      Object.defineProperty(window, "location", {
+        value: new URL("http://localhost:5173/article/1?preview=true"),
+        configurable: true
+      });
+      const adapter = createAdapter({
+        listFeedback: vi.fn(async () => [createFeedbackItem({ id: "fb-copy-1" })])
+      });
+
+      render(
+        <ReviewLensProvider
+          config={{
+            adapter,
+            projectKey: "demo",
+            contentId: "article-1",
+            currentUrl: "http://localhost:5173/article/1"
+          }}
+        >
+          <ReviewLensOverlay open syncSelectionToUrl />
+        </ReviewLensProvider>
+      );
+
+      fireEvent.click(await screen.findByRole("tab", { name: /Feedback 1/ }));
+      fireEvent.click(await screen.findByText("Move the CTA higher"));
+      fireEvent.click(await screen.findByRole("button", { name: "Copy link to this feedback" }));
+
+      await waitFor(() =>
+        expect(writeText).toHaveBeenCalledWith(
+          "http://localhost:5173/article/1?preview=true&reviewLensFeedback=fb-copy-1"
+        )
+      );
+    });
+
+    it("falls back when the Clipboard API is unavailable", async () => {
+      const execCommand = vi.fn(() => true);
+      Object.defineProperty(navigator, "clipboard", {
+        value: undefined,
+        configurable: true
+      });
+      Object.defineProperty(document, "execCommand", {
+        value: execCommand,
+        configurable: true
+      });
+      Object.defineProperty(window, "location", {
+        value: new URL("http://localhost:5173/article/1"),
+        configurable: true
+      });
+      const adapter = createAdapter({
+        listFeedback: vi.fn(async () => [createFeedbackItem({ id: "fb-fallback-1" })])
+      });
+
+      render(
+        <ReviewLensProvider
+          config={{
+            adapter,
+            projectKey: "demo",
+            contentId: "article-1",
+            currentUrl: "http://localhost:5173/article/1"
+          }}
+        >
+          <ReviewLensOverlay open syncSelectionToUrl />
+        </ReviewLensProvider>
+      );
+
+      fireEvent.click(await screen.findByRole("tab", { name: /Feedback 1/ }));
+      fireEvent.click(await screen.findByText("Move the CTA higher"));
+      fireEvent.click(await screen.findByRole("button", { name: "Copy link to this feedback" }));
+
+      await waitFor(() => expect(execCommand).toHaveBeenCalledWith("copy"));
+    });
   });
 });
 

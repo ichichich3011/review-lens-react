@@ -194,6 +194,19 @@
   overflow: hidden;
 }
 
+.review-lens-brand {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.review-lens-brand__mark {
+  flex: 0 0 auto;
+  height: 36px;
+  width: 36px;
+}
+
 .review-lens-panel h2,
 .review-lens-panel h3,
 .review-lens-panel p {
@@ -599,6 +612,28 @@
   display: flex;
   gap: 12px;
   justify-content: space-between;
+}
+
+.review-lens-detail__header-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.review-lens-copy-link {
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.review-lens-copy-link:hover {
+  background: #eff6ff;
 }
 
 .review-lens-detail__header h3 {

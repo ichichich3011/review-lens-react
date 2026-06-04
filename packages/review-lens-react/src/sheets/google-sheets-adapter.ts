@@ -10,6 +10,7 @@ import type {
   ReviewLensFeedback,
   ReviewLensPermission,
   ReviewLensRole,
+  ReviewLensSendEmailInput,
   ReviewLensThreadMessage,
   ReviewLensViewportPreset,
   UpdateFeedbackInput
@@ -23,6 +24,7 @@ type GoogleSheetsAdapterConfig = {
   messagesSheetName?: string;
   usersSheetName?: string;
   projectsSheetName?: string;
+  enableEmailNotifications?: boolean;
 };
 
 type TokenClient = {
@@ -48,8 +50,10 @@ declare global {
 const googleScopes = [
   "https://www.googleapis.com/auth/spreadsheets",
   "https://www.googleapis.com/auth/userinfo.email"
-].join(" ");
+];
+const gmailSendScope = "https://www.googleapis.com/auth/gmail.send";
 const userInfoEndpoint = "https://www.googleapis.com/oauth2/v3/userinfo";
+const gmailSendEndpoint = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 
 export function createGoogleSheetsAdapter(
   config: GoogleSheetsAdapterConfig
@@ -57,11 +61,14 @@ export function createGoogleSheetsAdapter(
   const feedbackSheetName = config.feedbackSheetName ?? "Feedback";
   const messagesSheetName = config.messagesSheetName ?? "Messages";
   const usersSheetName = config.usersSheetName ?? "Users";
+  const scopes = config.enableEmailNotifications
+    ? [...googleScopes, gmailSendScope].join(" ")
+    : googleScopes.join(" ");
   let tokenPromise: Promise<string> | undefined;
   let currentEmail: string | undefined;
 
   async function getToken() {
-    tokenPromise ??= requestGoogleToken(config.googleClientId);
+    tokenPromise ??= requestGoogleToken(config.googleClientId, scopes);
     return tokenPromise;
   }
 
@@ -243,6 +250,34 @@ export function createGoogleSheetsAdapter(
       );
 
       return message;
+    },
+
+    async sendEmail(input: ReviewLensSendEmailInput) {
+      if (!config.enableEmailNotifications || input.to.length === 0) {
+        return;
+      }
+
+      const token = await getToken();
+      const sender = await this.getCurrentUser();
+      const response = await fetch(gmailSendEndpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          raw: createRawEmail({
+            from: sender.email,
+            to: input.to,
+            subject: input.subject,
+            text: input.text
+          })
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Gmail send request failed with ${response.status}`);
+      }
     }
   };
 }
@@ -492,13 +527,13 @@ function columnLetter(columnNumber: number): string {
   return result;
 }
 
-async function requestGoogleToken(clientId: string): Promise<string> {
+async function requestGoogleToken(clientId: string, scope: string): Promise<string> {
   await loadGoogleIdentityScript();
 
   return new Promise((resolve, reject) => {
     const client = window.google?.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: googleScopes,
+      scope,
       callback: (response) => {
         if (response.error || !response.access_token) {
           reject(new Error(response.error ?? "Google OAuth did not return an access token"));
@@ -539,4 +574,33 @@ function loadGoogleIdentityScript(): Promise<void> {
     script.onerror = () => reject(new Error("Google Identity failed to load"));
     document.head.append(script);
   });
+}
+
+function createRawEmail(input: {
+  from: string;
+  to: string[];
+  subject: string;
+  text: string;
+}): string {
+  const message = [
+    `From: ${input.from}`,
+    `To: ${input.to.join(", ")}`,
+    `Subject: ${input.subject}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    input.text
+  ].join("\r\n");
+
+  return base64UrlEncode(message);
+}
+
+function base64UrlEncode(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }

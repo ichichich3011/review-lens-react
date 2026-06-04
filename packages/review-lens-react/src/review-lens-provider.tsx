@@ -11,6 +11,7 @@ import type {
   CreateAttachmentInput,
   CreateFeedbackInput,
   CreateMessageInput,
+  FeedbackStatus,
   ReviewLensAdapter,
   ReviewLensAttachment,
   ReviewLensConfig,
@@ -52,11 +53,13 @@ export function ReviewLensProvider({ config, children }: ReviewLensProviderProps
       googleClientId: requireConfig(config.googleClientId, "googleClientId"),
       contentSpreadsheetId: requireConfig(config.contentSpreadsheetId, "contentSpreadsheetId"),
       usersSpreadsheetId: requireConfig(config.usersSpreadsheetId, "usersSpreadsheetId"),
-      feedbackSheetName: config.sheetName ?? "Feedback"
+      feedbackSheetName: config.sheetName ?? "Feedback",
+      enableEmailNotifications: isEmailNotificationsEnabled(config)
     });
   }, [
     config.adapter,
     config.contentSpreadsheetId,
+    config.emailNotifications,
     config.googleClientId,
     config.sheetName,
     config.usersSpreadsheetId
@@ -106,20 +109,32 @@ export function ReviewLensProvider({ config, children }: ReviewLensProviderProps
     async (input: CreateFeedbackInput) => {
       const item = await adapter.createFeedback(input);
       setFeedback((current) => [item, ...current]);
+      void sendReviewNotification(config, adapter, {
+        actorEmail: currentUser?.email ?? input.authorEmail,
+        item,
+        kind: "created"
+      });
       return item;
     },
-    [adapter]
+    [adapter, config, currentUser?.email]
   );
 
   const updateFeedback = useCallback(
     async (id: string, patch: UpdateFeedbackInput) => {
+      const previousItem = feedback.find((feedbackItem) => feedbackItem.id === id);
       const item = await adapter.updateFeedback(id, patch);
       setFeedback((current) =>
         current.map((feedbackItem) => (feedbackItem.id === id ? item : feedbackItem))
       );
+      void sendReviewNotification(config, adapter, {
+        actorEmail: currentUser?.email,
+        item,
+        kind: getUpdateNotificationKind(patch),
+        previousItem
+      });
       return item;
     },
-    [adapter]
+    [adapter, config, currentUser?.email, feedback]
   );
 
   const listMessages = useCallback(
@@ -128,8 +143,20 @@ export function ReviewLensProvider({ config, children }: ReviewLensProviderProps
   );
 
   const createMessage = useCallback(
-    (input: CreateMessageInput) => adapter.createMessage(input),
-    [adapter]
+    async (input: CreateMessageInput) => {
+      const message = await adapter.createMessage(input);
+      const item = feedback.find((feedbackItem) => feedbackItem.id === input.feedbackId);
+      if (item) {
+        void sendReviewNotification(config, adapter, {
+          actorEmail: input.authorEmail,
+          item,
+          kind: "reply",
+          replyBody: input.body
+        });
+      }
+      return message;
+    },
+    [adapter, config, feedback]
   );
 
   const uploadAttachment = useCallback(
@@ -195,4 +222,160 @@ function requireConfig<T>(value: T | undefined, key: string): T {
   }
 
   return value;
+}
+
+type ReviewNotificationKind = "created" | "updated" | "assigned" | "status" | "fixed" | "resolved" | "reply";
+
+type ReviewNotificationInput = {
+  actorEmail?: string;
+  item: ReviewLensFeedback;
+  kind: ReviewNotificationKind;
+  previousItem?: ReviewLensFeedback;
+  replyBody?: string;
+};
+
+function isEmailNotificationsEnabled(config: ReviewLensConfig) {
+  return typeof config.emailNotifications === "object"
+    ? config.emailNotifications.enabled !== false
+    : Boolean(config.emailNotifications);
+}
+
+function getUpdateNotificationKind(patch: UpdateFeedbackInput): ReviewNotificationKind {
+  if (patch.status === "resolved") {
+    return "resolved";
+  }
+
+  if (patch.status === "fixed" || patch.fixedAt || patch.fixedBy) {
+    return "fixed";
+  }
+
+  if (patch.status) {
+    return "status";
+  }
+
+  if ("assigneeEmail" in patch) {
+    return "assigned";
+  }
+
+  return "updated";
+}
+
+async function sendReviewNotification(
+  config: ReviewLensConfig,
+  adapter: ReviewLensAdapter,
+  input: ReviewNotificationInput
+) {
+  if (!isEmailNotificationsEnabled(config) || !adapter.sendEmail) {
+    return;
+  }
+
+  const recipients = getNotificationRecipients(input);
+  if (recipients.length === 0) {
+    return;
+  }
+
+  try {
+    await adapter.sendEmail({
+      to: recipients,
+      subject: buildNotificationSubject(config, input),
+      text: buildNotificationText(input)
+    });
+  } catch (error) {
+    console.warn("Review Lens email notification failed", error);
+  }
+}
+
+function getNotificationRecipients(input: ReviewNotificationInput) {
+  const recipients = new Set<string>();
+  recipients.add(input.item.authorEmail);
+
+  if (input.previousItem?.assigneeEmail) {
+    recipients.add(input.previousItem.assigneeEmail);
+  }
+
+  if (input.item.assigneeEmail) {
+    recipients.add(input.item.assigneeEmail);
+  }
+
+  return [...recipients].filter((email) => {
+    if (!email) {
+      return false;
+    }
+
+    return email.toLowerCase() !== input.actorEmail?.toLowerCase();
+  });
+}
+
+function buildNotificationSubject(config: ReviewLensConfig, input: ReviewNotificationInput) {
+  const options = typeof config.emailNotifications === "object" ? config.emailNotifications : {};
+  const prefix = options.subjectPrefix ?? "Review Lens";
+  return `${prefix}: ${getNotificationLabel(input)}`;
+}
+
+function buildNotificationText(input: ReviewNotificationInput) {
+  const lines = [
+    "[Review Lens]",
+    getNotificationLabel(input),
+    getSenderDisclosure(input),
+    "",
+    `Review: ${input.item.comment}`,
+    `Status: ${formatStatus(input.item.status)}`,
+    `Author: ${input.item.authorEmail}`,
+    `Assignee: ${input.item.assigneeEmail ?? "Unassigned"}`,
+    `Link: ${buildFeedbackLink(input.item)}`
+  ];
+
+  if (input.replyBody) {
+    lines.splice(2, 0, `Reply: ${input.replyBody}`, "");
+  }
+
+  return lines.join("\n");
+}
+
+function getSenderDisclosure(input: ReviewNotificationInput) {
+  return input.actorEmail
+    ? `Sent by Review Lens on behalf of ${input.actorEmail}.`
+    : "Sent by Review Lens on behalf of the signed-in Google user.";
+}
+
+function getNotificationLabel(input: ReviewNotificationInput) {
+  if (input.kind === "created") {
+    return "New review feedback";
+  }
+
+  if (input.kind === "assigned") {
+    return `Review assignment changed to ${input.item.assigneeEmail ?? "unassigned"}`;
+  }
+
+  if (input.kind === "status") {
+    return `Review status changed to ${formatStatus(input.item.status)}`;
+  }
+
+  if (input.kind === "fixed") {
+    return "Review marked fixed";
+  }
+
+  if (input.kind === "resolved") {
+    return "Review resolved";
+  }
+
+  if (input.kind === "reply") {
+    return "New review reply";
+  }
+
+  return "Review updated";
+}
+
+function buildFeedbackLink(item: ReviewLensFeedback) {
+  try {
+    const url = new URL(item.originalUrl);
+    url.searchParams.set("reviewLensFeedback", item.id);
+    return url.toString();
+  } catch {
+    return item.originalUrl;
+  }
+}
+
+function formatStatus(status: FeedbackStatus) {
+  return status.replace(/_/g, " ");
 }

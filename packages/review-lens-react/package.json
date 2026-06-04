@@ -1,6 +1,6 @@
 {
   "name": "review-lens-react",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "React overlay for UX review feedback backed by Google Sheets.",
   "repository": {
     "type": "git",

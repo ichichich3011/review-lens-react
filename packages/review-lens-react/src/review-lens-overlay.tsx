@@ -7,6 +7,7 @@ import {
   useState
 } from "react";
 import { buildElementTarget } from "./selectors/build-element-target";
+import { ReviewLensLogo } from "./review-lens-logo";
 import type {
   CssSnapshot,
   FeedbackCategory,
@@ -126,6 +127,12 @@ export function ReviewLensOverlay({
   >({});
   const [messageDraft, setMessageDraft] = useState("");
   const commentRef = useRef<HTMLTextAreaElement>(null);
+  const hasOpenedRef = useRef(open);
+  const pendingLinkId = useRef<string | null>(
+    syncSelectionToUrl
+      ? new URL(window.location.href).searchParams.get("reviewLensFeedback")
+      : null
+  );
   const canInspect = Boolean(currentUser);
   const canCreate = permissions.includes("create");
   const canReply = permissions.includes("reply");
@@ -175,14 +182,25 @@ export function ReviewLensOverlay({
   ].filter((value) => value !== "all").length;
 
   useEffect(() => {
-    if (!open) {
-      setHovered(undefined);
-      setLocked(undefined);
-      setComment("");
-      setMessageDraft("");
-      setPanelMode("review");
+    if (open) {
+      hasOpenedRef.current = true;
+      return;
     }
-  }, [open]);
+
+    setHovered(undefined);
+    setLocked(undefined);
+    setComment("");
+    setMessageDraft("");
+    setPanelMode("review");
+
+    if (syncSelectionToUrl && hasOpenedRef.current) {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("reviewLensFeedback")) {
+        url.searchParams.delete("reviewLensFeedback");
+        window.history.replaceState({}, "", url);
+      }
+    }
+  }, [open, syncSelectionToUrl]);
 
   useEffect(() => {
     if (!canInspect) {
@@ -219,6 +237,23 @@ export function ReviewLensOverlay({
     };
   }, [listMessages, selectedFeedback]);
 
+  // Auto-open and select when the URL carries a reviewLensFeedback param on first load.
+  useEffect(() => {
+    if (!syncSelectionToUrl || !pendingLinkId.current || feedback.length === 0) {
+      return;
+    }
+
+    const item = feedback.find((nextItem) => nextItem.id === pendingLinkId.current);
+    if (!item) {
+      return;
+    }
+
+    pendingLinkId.current = null;
+    onOpenChange?.(true);
+    selectFeedback(item, { syncUrl: false });
+  }, [feedback, syncSelectionToUrl]);
+
+  // Sync selection into URL when the panel is already open.
   useEffect(() => {
     if (!open || !syncSelectionToUrl || selectedFeedback || feedback.length === 0) {
       return;
@@ -436,6 +471,12 @@ export function ReviewLensOverlay({
     setHovered(undefined);
     setPanelMode("feedback");
     setSelectedFeedback(item);
+
+    if (syncSelectionToUrl) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("reviewLensFeedback", item.id);
+      window.history.replaceState({}, "", url);
+    }
   }
 
   async function updateSelectedStatus(item: ReviewLensFeedback, status: FeedbackStatus) {
@@ -503,17 +544,20 @@ export function ReviewLensOverlay({
       ) : null}
       <aside className={`review-lens-panel review-lens-panel--${placement}`} data-review-lens-ui>
         <header className="review-lens-panel__header">
-          <div>
-            <p className="review-lens-kicker">Review Lens</p>
-            <h2>
-              {panelMode === "summary"
-                ? "Summary"
-                : panelMode === "feedback"
-                  ? "Feedback"
-                  : locked
-                    ? "Element locked"
-                    : "Inspecting"}
-            </h2>
+          <div className="review-lens-brand">
+            <ReviewLensLogo className="review-lens-brand__mark" />
+            <div>
+              <p className="review-lens-kicker">Review Lens</p>
+              <h2>
+                {panelMode === "summary"
+                  ? "Summary"
+                  : panelMode === "feedback"
+                    ? "Feedback"
+                    : locked
+                      ? "Element locked"
+                      : "Inspecting"}
+              </h2>
+            </div>
           </div>
           <button type="button" onClick={() => onOpenChange?.(false)}>
             Close
@@ -717,6 +761,7 @@ export function ReviewLensOverlay({
                     canReply={canReply}
                     canUpdate={canUpdate}
                     canAssign={canAssign}
+                    syncSelectionToUrl={syncSelectionToUrl}
                     onMessageDraftChange={setMessageDraft}
                     onSubmitMessage={() => void submitMessage(selectedFeedback)}
                     onStatusChange={(status) => void updateSelectedStatus(selectedFeedback, status)}
@@ -933,6 +978,7 @@ function FeedbackDetail({
   canReply,
   canUpdate,
   canAssign,
+  syncSelectionToUrl,
   onMessageDraftChange,
   onSubmitMessage,
   onStatusChange,
@@ -945,19 +991,45 @@ function FeedbackDetail({
   canReply: boolean;
   canUpdate: boolean;
   canAssign: boolean;
+  syncSelectionToUrl: boolean;
   onMessageDraftChange: (value: string) => void;
   onSubmitMessage: () => void;
   onStatusChange: (status: FeedbackStatus) => void;
   onAssigneeChange: (value: string) => void;
   onMarkFixed: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
   const drift = getDriftState(item);
+
+  function copyLink() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("reviewLensFeedback", item.id);
+
+    void copyText(url.toString()).then((success) => {
+      if (success) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    });
+  }
 
   return (
     <section className="review-lens-detail" aria-label="Selected feedback detail">
       <div className="review-lens-detail__header">
         <h3>{categoryLabels[item.category]} feedback</h3>
-        <strong>{severityLabels[item.severity]}</strong>
+        <div className="review-lens-detail__header-actions">
+          {syncSelectionToUrl ? (
+            <button
+              type="button"
+              className="review-lens-copy-link"
+              onClick={copyLink}
+              aria-label="Copy link to this feedback"
+            >
+              {copied ? "Copied!" : "Copy link"}
+            </button>
+          ) : null}
+          <strong>{severityLabels[item.severity]}</strong>
+        </div>
       </div>
       <blockquote>{item.comment}</blockquote>
       <dl className="review-lens-detail-meta">
@@ -1050,6 +1122,27 @@ function FeedbackDetail({
       </div>
     </section>
   );
+}
+
+async function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
 }
 
 function Summary({ feedback }: { feedback: ReviewLensFeedback[] }) {

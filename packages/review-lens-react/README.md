@@ -1,5 +1,7 @@
 # review-lens-react
 
+<img src="https://raw.githubusercontent.com/ichichich3011/review-lens-react/main/packages/review-lens-react/review-lens-logo.svg" alt="Review Lens logo" width="64" height="64">
+
 `review-lens-react` is a React overlay for UX reviews inside frontend apps. Designers can inspect real DOM elements, see computed spacing and typography details, lock an element, write feedback, and store that feedback in Google Sheets. Developers can open the same app, see page comments anchored to selectors, and resolve feedback while implementing the review.
 
 The package is intended to be mounted by the host app only when review mode is needed. It does not add a global launcher by default.
@@ -102,6 +104,7 @@ Config:
 | `normalizeUrl` | no | Custom URL normalization function. |
 | `designTokens` | no | Allowed spacing, font size, line height, color, and radius values for advisory token checks. |
 | `captureScreenshot` | no | Optional hook that captures a screenshot for a selected target. |
+| `emailNotifications` | no | Enables Gmail notifications for authors and assignees. Requires the Gmail send scope. |
 | `uploadAttachment` | no | Optional hook that stores screenshots and returns attachment URLs. |
 | `adapter` | no | Custom storage adapter for tests, demos, or a future backend. |
 
@@ -145,12 +148,13 @@ Official references:
 
 Open Google Cloud Console and choose the project that should own the OAuth client.
 
-### 2. Enable Google Sheets API
+### 2. Enable Google APIs
 
 In Google Cloud Console:
 
 1. Go to `APIs & Services`.
 2. Enable `Google Sheets API`.
+3. Enable `Gmail API` when `emailNotifications` should send notification emails.
 
 ### 3. Configure OAuth consent
 
@@ -167,6 +171,37 @@ https://www.googleapis.com/auth/userinfo.email
 ```
 
 The Sheets scope is used to read/write feedback rows. The email scope is used to match the signed-in Google account against the `Users` tab.
+
+To send review notifications from the signed-in user's Gmail account, also add:
+
+```text
+https://www.googleapis.com/auth/gmail.send
+```
+
+Then enable notifications in the provider config:
+
+```tsx
+<ReviewLensProvider
+  config={{
+    googleClientId,
+    contentSpreadsheetId,
+    usersSpreadsheetId,
+    projectKey: "demo",
+    contentId: "article-123",
+    emailNotifications: true
+  }}
+>
+  {children}
+</ReviewLensProvider>
+```
+
+Notification emails include a `reviewLensFeedback=<id>` link back to the selected feedback and state that they were sent by Review Lens on behalf of the signed-in user. The default Google adapter only requests the Gmail scope when `emailNotifications` is enabled.
+
+The package also exports `ReviewLensLogo` for host apps that want to reuse the same mark in custom launchers or review entry points:
+
+```tsx
+import { ReviewLensLogo } from "review-lens-react";
+```
 
 ### 4. Create an OAuth web client
 

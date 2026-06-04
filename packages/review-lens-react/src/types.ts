@@ -144,6 +144,17 @@ export type CreateAttachmentInput = {
   createdBy: string;
 };
 
+export type ReviewLensEmailNotificationOptions = {
+  enabled?: boolean;
+  subjectPrefix?: string;
+};
+
+export type ReviewLensSendEmailInput = {
+  to: string[];
+  subject: string;
+  text: string;
+};
+
 export type ReviewLensDesignTokens = {
   spacing?: string[];
   fontSize?: string[];
@@ -164,6 +175,7 @@ export type ReviewLensAdapter = {
   updateFeedback(id: string, patch: UpdateFeedbackInput): Promise<ReviewLensFeedback>;
   listMessages(feedbackId: string): Promise<ReviewLensThreadMessage[]>;
   createMessage(input: CreateMessageInput): Promise<ReviewLensThreadMessage>;
+  sendEmail?(input: ReviewLensSendEmailInput): Promise<void>;
   uploadAttachment?(
     feedbackId: string,
     input: CreateAttachmentInput
@@ -181,6 +193,7 @@ export type ReviewLensConfig = {
   normalizeUrl?: (url: string) => string;
   designTokens?: ReviewLensDesignTokens;
   captureScreenshot?: (target: ReviewLensTarget) => Promise<Blob | string>;
+  emailNotifications?: boolean | ReviewLensEmailNotificationOptions;
   uploadAttachment?: (
     feedbackId: string,
     input: CreateAttachmentInput
