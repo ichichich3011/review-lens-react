@@ -31,6 +31,11 @@ type TokenClient = {
   requestAccessToken(options?: { prompt?: string }): void;
 };
 
+type GoogleToken = {
+  accessToken: string;
+  expiresAt: number;
+};
+
 declare global {
   interface Window {
     google?: {
@@ -39,7 +44,7 @@ declare global {
           initTokenClient(config: {
             client_id: string;
             scope: string;
-            callback: (response: { access_token?: string; error?: string }) => void;
+            callback: (response: { access_token?: string; expires_in?: number; error?: string }) => void;
           }): TokenClient;
         };
       };
@@ -54,6 +59,8 @@ const googleScopes = [
 const gmailSendScope = "https://www.googleapis.com/auth/gmail.send";
 const userInfoEndpoint = "https://www.googleapis.com/oauth2/v3/userinfo";
 const gmailSendEndpoint = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
+const tokenStoragePrefix = "review-lens-google-token";
+const tokenExpiryBufferMs = 60_000;
 
 export function createGoogleSheetsAdapter(
   config: GoogleSheetsAdapterConfig
@@ -64,12 +71,29 @@ export function createGoogleSheetsAdapter(
   const scopes = config.enableEmailNotifications
     ? [...googleScopes, gmailSendScope].join(" ")
     : googleScopes.join(" ");
-  let tokenPromise: Promise<string> | undefined;
+  const tokenStorageKey = createTokenStorageKey(config.googleClientId, scopes);
+  let tokenPromise: Promise<GoogleToken> | undefined;
   let currentEmail: string | undefined;
 
   async function getToken() {
-    tokenPromise ??= requestGoogleToken(config.googleClientId, scopes);
-    return tokenPromise;
+    const storedToken = readStoredGoogleToken(tokenStorageKey);
+
+    if (storedToken) {
+      return storedToken.accessToken;
+    }
+
+    tokenPromise ??= requestGoogleToken(config.googleClientId, scopes).then((token) => {
+      writeStoredGoogleToken(tokenStorageKey, token);
+      return token;
+    });
+
+    const token = await tokenPromise;
+    if (Date.now() >= token.expiresAt) {
+      tokenPromise = undefined;
+      return getToken();
+    }
+
+    return token.accessToken;
   }
 
   async function sheetsFetch<T>(
@@ -90,6 +114,29 @@ export function createGoogleSheetsAdapter(
       }
     );
 
+    if (response.status === 401) {
+      clearStoredGoogleToken(tokenStorageKey);
+      tokenPromise = undefined;
+      const retryToken = await getToken();
+      const retryResponse = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}${path}`,
+        {
+          ...init,
+          headers: {
+            Authorization: `Bearer ${retryToken}`,
+            "Content-Type": "application/json",
+            ...init?.headers
+          }
+        }
+      );
+
+      if (!retryResponse.ok) {
+        throw new Error(`Google Sheets request failed with ${retryResponse.status}`);
+      }
+
+      return retryResponse.json() as Promise<T>;
+    }
+
     if (!response.ok) {
       throw new Error(`Google Sheets request failed with ${response.status}`);
     }
@@ -108,17 +155,7 @@ export function createGoogleSheetsAdapter(
   return {
     async getCurrentUser() {
       if (!currentEmail) {
-        const token = await getToken();
-        const response = await fetch(userInfoEndpoint, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Google userinfo request failed with ${response.status}`);
-        }
-
-        const data = (await response.json()) as { email?: string };
-        currentEmail = data.email;
+        currentEmail = await getCurrentEmail();
       }
 
       if (!currentEmail) {
@@ -280,6 +317,34 @@ export function createGoogleSheetsAdapter(
       }
     }
   };
+
+  async function getCurrentEmail() {
+    const response = await fetch(userInfoEndpoint, {
+      headers: { Authorization: `Bearer ${await getToken()}` }
+    });
+
+    if (response.status === 401) {
+      clearStoredGoogleToken(tokenStorageKey);
+      tokenPromise = undefined;
+      const retryResponse = await fetch(userInfoEndpoint, {
+        headers: { Authorization: `Bearer ${await getToken()}` }
+      });
+
+      if (!retryResponse.ok) {
+        throw new Error(`Google userinfo request failed with ${retryResponse.status}`);
+      }
+
+      const retryData = (await retryResponse.json()) as { email?: string };
+      return retryData.email;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Google userinfo request failed with ${response.status}`);
+    }
+
+    const data = (await response.json()) as { email?: string };
+    return data.email;
+  }
 }
 
 const feedbackHeader = [
@@ -527,7 +592,7 @@ function columnLetter(columnNumber: number): string {
   return result;
 }
 
-async function requestGoogleToken(clientId: string, scope: string): Promise<string> {
+async function requestGoogleToken(clientId: string, scope: string): Promise<GoogleToken> {
   await loadGoogleIdentityScript();
 
   return new Promise((resolve, reject) => {
@@ -540,12 +605,59 @@ async function requestGoogleToken(clientId: string, scope: string): Promise<stri
           return;
         }
 
-        resolve(response.access_token);
+        const expiresInSeconds = response.expires_in ?? 3600;
+        resolve({
+          accessToken: response.access_token,
+          expiresAt: Date.now() + expiresInSeconds * 1000
+        });
       }
     });
 
     client?.requestAccessToken({ prompt: "" });
   });
+}
+
+function createTokenStorageKey(clientId: string, scope: string): string {
+  return `${tokenStoragePrefix}:${clientId}:${scope}`;
+}
+
+function readStoredGoogleToken(key: string): GoogleToken | undefined {
+  try {
+    const value = window.localStorage.getItem(key);
+    if (!value) {
+      return undefined;
+    }
+
+    const token = JSON.parse(value) as Partial<GoogleToken>;
+    if (
+      typeof token.accessToken !== "string" ||
+      typeof token.expiresAt !== "number" ||
+      Date.now() >= token.expiresAt - tokenExpiryBufferMs
+    ) {
+      window.localStorage.removeItem(key);
+      return undefined;
+    }
+
+    return token as GoogleToken;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeStoredGoogleToken(key: string, token: GoogleToken): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(token));
+  } catch {
+    // Storage can be disabled by browser settings; in-memory token reuse still works.
+  }
+}
+
+function clearStoredGoogleToken(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage failures so auth errors surface through the original request.
+  }
 }
 
 function loadGoogleIdentityScript(): Promise<void> {
